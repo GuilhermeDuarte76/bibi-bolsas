@@ -21,6 +21,7 @@ export const identitySchema = z.object({
   email: z.string().email('E-mail inválido'),
   phone: z.string().min(14, 'Telefone inválido'),
   document: z.string().min(11, 'CPF inválido'),
+  termsAccepted: z.boolean().refine(Boolean, 'Aceite os termos para continuar'),
 });
 export type IdentityFormValues = z.infer<typeof identitySchema>;
 

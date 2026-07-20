@@ -16,6 +16,7 @@ import {
   Truck,
   UsersThree,
   Lightning,
+  Stack,
   X,
 } from '@phosphor-icons/react';
 import { useAuth } from '@/hooks/useAuth';
@@ -36,6 +37,7 @@ const GROUPS: { title: string; links: { to: string; label: string; icon: typeof 
     title: 'Catálogo',
     links: [
       { to: '/admin/produtos', label: 'Produtos', icon: Package },
+      { to: '/admin/estoque', label: 'Estoque', icon: Stack },
       { to: '/admin/cupons', label: 'Cupons', icon: Tag },
       { to: '/admin/promocoes', label: 'Promoções', icon: Percent },
     ],
@@ -46,7 +48,7 @@ const GROUPS: { title: string; links: { to: string; label: string; icon: typeof 
       { to: '/admin/frete', label: 'Frete', icon: Truck },
       { to: '/admin/pagamentos', label: 'Pagamentos', icon: Money },
       { to: '/admin/fiscal', label: 'Fiscal', icon: Receipt },
-      { to: '/admin/automacoes', label: 'Automações', icon: Lightning },
+      { to: '/admin/automacoes', label: 'Alertas', icon: Lightning },
     ],
   },
   {

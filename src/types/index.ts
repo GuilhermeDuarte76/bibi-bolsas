@@ -117,6 +117,230 @@ export interface Product {
   createdAt: string;
 }
 
+export interface AdminProductCategory {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+export interface AdminProductImage {
+  id: string;
+  productId: string;
+  productVariantId?: string;
+  publicUrl: string;
+  altText?: string;
+  sortOrder: number;
+  isMain: boolean;
+}
+
+export interface AdminProductVariant {
+  id: string;
+  productId: string;
+  sku: string;
+  name: string;
+  color?: string;
+  colorHex?: string;
+  size?: string;
+  material?: string;
+  finish?: string;
+  priceCents: number;
+  promotionalPriceCents?: number;
+  costPriceCents?: number;
+  stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minimumStock: number;
+  isLowStock: boolean;
+  weightKg: number;
+  heightCm: number;
+  widthCm: number;
+  depthCm: number;
+  barcode?: string;
+  isDefault: boolean;
+  isActive: boolean;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdminProduct {
+  id: string;
+  name: string;
+  slug: string;
+  shortDescription?: string;
+  description?: string;
+  brand?: string;
+  collection?: string;
+  mainMaterial?: string;
+  mainColor?: string;
+  status: 'Draft' | 'Published' | 'Archived' | string;
+  isFeatured: boolean;
+  isNewArrival: boolean;
+  isPromotion: boolean;
+  displayOrder: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  searchKeywords?: string;
+  categories: AdminProductCategory[];
+  variants: AdminProductVariant[];
+  images: AdminProductImage[];
+  isAvailable: boolean;
+  createdAt: string;
+  updatedAt?: string;
+  publishedAt?: string;
+  archivedAt?: string;
+}
+
+export interface AdminInventorySummary {
+  variantId: string;
+  productId: string;
+  sku: string;
+  productName: string;
+  productSlug: string;
+  variantName: string;
+  stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minimumStock: number;
+  isLowStock: boolean;
+  isActive: boolean;
+}
+
+export interface AdminInventoryDetail extends AdminInventorySummary {
+  productStatus: string;
+  priceCents: number;
+  promotionalPriceCents?: number;
+  weightKg: number;
+  heightCm: number;
+  widthCm: number;
+  depthCm: number;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export type AdminInventoryAdjustmentType =
+  | 'ManualEntry'
+  | 'ManualExit'
+  | 'InventoryCorrection';
+
+export interface AdminInventoryAdjustmentInput {
+  variantId: string;
+  type: AdminInventoryAdjustmentType;
+  quantity: number;
+  reason: string;
+}
+
+export interface AdminStockMovement {
+  id: string;
+  variantId: string;
+  sku: string;
+  type: string;
+  quantity: number;
+  previousStockQuantity: number;
+  newStockQuantity: number;
+  previousReservedQuantity: number;
+  newReservedQuantity: number;
+  reason?: string;
+  referenceType?: string;
+  referenceId?: string;
+  createdByUserId?: string;
+  createdAt: string;
+}
+
+export interface AdminStockReservation {
+  id: string;
+  variantId: string;
+  sku: string;
+  userId?: string;
+  cartId?: string;
+  orderId?: string;
+  quantity: number;
+  status: string;
+  expiresAt: string;
+  createdAt: string;
+  confirmedAt?: string;
+  releasedAt?: string;
+  expiredAt?: string;
+  releaseReason?: string;
+}
+
+export interface AdminCatalogCategory {
+  id: string;
+  name: string;
+  slug: string;
+  description?: string;
+  parentCategoryId?: string;
+  displayOrder: number;
+  isActive: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdminProductVariantInput {
+  id?: string;
+  sku: string;
+  name: string;
+  color?: string;
+  colorHex?: string;
+  size?: string;
+  material?: string;
+  finish?: string;
+  priceCents: number;
+  promotionalPriceCents?: number;
+  costPriceCents?: number;
+  stockQuantity: number;
+  reservedQuantity: number;
+  minimumStock: number;
+  weightKg: number;
+  heightCm: number;
+  widthCm: number;
+  depthCm: number;
+  barcode?: string;
+  isDefault: boolean;
+  isActive: boolean;
+}
+
+export interface AdminProductInput {
+  name: string;
+  slug?: string;
+  shortDescription?: string;
+  description?: string;
+  brand?: string;
+  collection?: string;
+  mainMaterial?: string;
+  mainColor?: string;
+  status: 'Draft' | 'Published' | 'Archived' | string;
+  isFeatured: boolean;
+  isNewArrival: boolean;
+  isPromotion: boolean;
+  displayOrder: number;
+  seoTitle?: string;
+  seoDescription?: string;
+  searchKeywords?: string;
+  categoryIds: string[];
+  variants: AdminProductVariantInput[];
+}
+
+export interface AdminProductImageInput {
+  id?: string;
+  productVariantId?: string;
+  storageKey: string;
+  publicUrl: string;
+  altText?: string;
+  sortOrder: number;
+  isMain: boolean;
+}
+
+export interface AdminImageUploadUrl {
+  uploadUrl: string;
+  storageKey: string;
+  publicUrl: string;
+  contentType: string;
+  expiresAt: string;
+  maxSizeBytes: number;
+}
+
 export interface ProductSummary {
   id: string;
   slug: string;
@@ -220,10 +444,15 @@ export interface ShippingOption {
   /** Prazo estimado em dias uteis. */
   etaDays: number;
   label: string;
+  provider?: string;
+  serviceCode?: string;
+  rawReference?: string;
 }
 
 export interface Cart {
   id: string;
+  /** ID numerico do carrinho no backend, exigido pelo checkout. */
+  backendId?: number;
   items: CartItem[];
   coupon?: AppliedCoupon;
   shipping?: ShippingOption;
@@ -245,7 +474,32 @@ export interface Customer {
   email: string;
   phone?: string;
   document?: string;
+  termsAccepted?: boolean;
+  marketingAccepted?: boolean;
   createdAt: string;
+}
+
+export interface AdminCustomerListItem {
+  id: string;
+  userId: string;
+  name: string;
+  email: string;
+  cpfMasked?: string;
+  phoneMasked?: string;
+  active: boolean;
+  createdAt: string;
+}
+
+export interface AdminCustomerDetail extends AdminCustomerListItem {
+  rgMasked?: string;
+  birthDate?: string;
+  termsAccepted: boolean;
+  termsAcceptedAt?: string;
+  marketingAccepted: boolean;
+  marketingAcceptedAt?: string;
+  deleteRequestedAt?: string;
+  anonymizedAt?: string;
+  updatedAt?: string;
 }
 
 export interface Address {
@@ -296,6 +550,42 @@ export interface OrderTracking {
   events: { date: string; status: string; location?: string }[];
 }
 
+export interface PaymentAttempt {
+  id: string;
+  provider: string;
+  method: PaymentMethod;
+  status: string;
+  amountCents: number;
+  pixQrCode?: string;
+  pixCopyPaste?: string;
+  failureReason?: string;
+  createdAt: string;
+  expiresAt?: string;
+  paidAt?: string;
+  canceledAt?: string;
+}
+
+export interface WebhookEvent {
+  id: string;
+  provider: string;
+  externalEventId?: string;
+  payloadHash: string;
+  status: string;
+  errorMessage?: string;
+  orderId?: string;
+  paymentAttemptId?: string;
+  receivedAt: string;
+  processedAt?: string;
+}
+
+export interface OrderHistoryEvent {
+  id: string;
+  previousStatus?: string;
+  status: string;
+  reason?: string;
+  createdAt: string;
+}
+
 export interface FiscalDocument {
   status: 'processing' | 'issued' | 'rejected';
   key?: string;
@@ -304,23 +594,53 @@ export interface FiscalDocument {
   rejectionReason?: string;
 }
 
+export interface FiscalPreviewItem {
+  description: string;
+  sku: string;
+  quantity: number;
+  unitPriceCents: number;
+  totalCents: number;
+}
+
+export interface FiscalPreview {
+  marker: string;
+  orderId: string;
+  orderNumber: string;
+  generatedAt: string;
+  customerName: string;
+  customerCpfMasked?: string;
+  shippingAddress: string;
+  items: FiscalPreviewItem[];
+  subtotalCents: number;
+  discountCents: number;
+  shippingCents: number;
+  totalCents: number;
+  pendingIssues: string[];
+}
+
 export interface Order {
   id: string;
   /** Numero amigavel exibido ao cliente. */
   number: string;
   status: OrderStatus;
+  paymentStatus?: string;
   createdAt: string;
+  expiresAt?: string;
   items: OrderItem[];
   paymentMethod: PaymentMethod;
+  paymentAttempt?: PaymentAttempt;
   shippingAddress: Address;
   shipping: ShippingOption;
   tracking?: OrderTracking;
   fiscal?: FiscalDocument;
+  history?: OrderHistoryEvent[];
   subtotalCents: number;
   discountCents: number;
   shippingCents: number;
   totalCents: number;
   couponCode?: string;
+  canCancel?: boolean;
+  canRetryPayment?: boolean;
 }
 
 // ----------------------------------------------------------------------------
@@ -363,7 +683,15 @@ export interface DashboardMetric {
 }
 
 export interface DashboardData {
+  generatedAt?: string;
   metrics: DashboardMetric[];
+  salesTodayCents?: number;
+  salesMonthCents?: number;
+  newOrders?: number;
+  awaitingPaymentOrders?: number;
+  paidOrders?: number;
+  preparingOrders?: number;
+  averageTicketCents?: number;
   pendingOrders: number;
   lowStock: number;
   pendingPayments: number;
@@ -371,29 +699,87 @@ export interface DashboardData {
   reviewsToModerate: number;
   revenueSeries: { label: string; valueCents: number }[];
   topProducts: { name: string; sold: number; revenueCents: number }[];
+  lowStockItems?: AdminLowStockItem[];
+  abandonedCarts?: number;
+  topCoupons?: AdminCouponMetric[];
+  newCustomers?: number;
+  openAlerts?: number;
   recentOrders: Order[];
+}
+
+export interface AdminLowStockItem {
+  productVariantId: string;
+  sku: string;
+  productName: string;
+  variantName: string;
+  stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minimumStock: number;
+}
+
+export interface AdminCouponMetric {
+  couponId: string;
+  code: string;
+  status: string;
+  reservedCount: number;
+  consumedCount: number;
+  discountTotalCents: number;
+}
+
+export interface AdminAlert {
+  id: string;
+  type: string;
+  severity: 'Low' | 'Medium' | 'High' | 'Critical' | string;
+  status: 'Open' | 'InProgress' | 'Resolved' | 'Ignored' | string;
+  title: string;
+  message: string;
+  entityName?: string;
+  entityId?: string;
+  createdAt: string;
+  resolvedAt?: string;
+  resolvedByUserId?: string;
+  resolutionReason?: string;
 }
 
 export interface Coupon {
   id: string;
   code: string;
+  name?: string;
   description: string;
-  type: 'percent' | 'fixed';
+  type: 'percent' | 'fixed' | 'Percentage' | 'FixedAmount' | 'FreeShipping' | string;
   value: number;
   active: boolean;
+  status?: 'Active' | 'Inactive' | 'Archived' | string;
+  startsAt?: string;
   usageCount: number;
   usageLimit?: number;
+  usageLimitPerCustomer?: number;
+  minimumOrderValueCents?: number;
+  maxDiscountValueCents?: number;
+  isFirstPurchaseOnly?: boolean;
+  isPrivate?: boolean;
+  canApplyToPromotionalItems?: boolean;
   expiresAt?: string;
+  archivedAt?: string;
+  archiveReason?: string;
 }
 
 export interface Promotion {
   id: string;
   name: string;
+  description?: string;
   discountPct: number;
+  type?: 'percent' | 'fixed' | 'Percentage' | 'FixedAmount' | 'FreeShipping' | string;
+  discountValue?: number;
+  minimumOrderValueCents?: number;
+  status?: 'Active' | 'Inactive' | 'Archived' | string;
   active: boolean;
   startsAt: string;
-  endsAt: string;
+  endsAt?: string;
   productCount: number;
+  archivedAt?: string;
+  archiveReason?: string;
 }
 
 export interface AdminUser {
@@ -403,10 +789,15 @@ export interface AdminUser {
   role: AdminRole;
   active: boolean;
   mfaEnabled: boolean;
+  emailConfirmed?: boolean;
+  createdAt?: string;
   lastLogin?: string;
 }
 
 export type AdminRole =
+  | 'Admin'
+  | 'Employee'
+  | 'Customer'
   | 'owner'
   | 'gerente'
   | 'atendimento'
@@ -427,8 +818,38 @@ export interface AuditEntry {
 export interface IntegrationStatus {
   id: string;
   name: string;
-  kind: 'pagamento' | 'frete' | 'fiscal' | 'notificacao' | 'automacao';
+  kind:
+    | 'pagamento'
+    | 'frete'
+    | 'fiscal'
+    | 'notificacao'
+    | 'automacao'
+    | 'storage'
+    | 'monitoramento'
+    | 'backup';
   status: 'ok' | 'degraded' | 'down';
   lastRun: string;
+  provider?: string;
+  requiredForProduction?: boolean;
+  missingSettings?: string[];
   message?: string;
+}
+
+export type ProductionReadinessStatus = 'Ready' | 'Warning' | 'Blocked' | string;
+
+export interface ProductionReadinessCheck {
+  key: string;
+  status: ProductionReadinessStatus;
+  message: string;
+  isBlocking: boolean;
+}
+
+export interface ProductionReadiness {
+  environment: string;
+  isProduction: boolean;
+  overallStatus: ProductionReadinessStatus;
+  canBootInProduction: boolean;
+  checkedAt: string;
+  checks: ProductionReadinessCheck[];
+  integrations: IntegrationStatus[];
 }

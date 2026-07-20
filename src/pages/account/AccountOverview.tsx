@@ -10,6 +10,7 @@ import { Skeleton } from '@/components/ui/Skeleton';
 export function AccountOverview() {
   const { customer } = useAuth();
   const orders = useQuery({ queryKey: queryKeys.orders, queryFn: () => accountService.listOrders() });
+  const addresses = useQuery({ queryKey: queryKeys.addresses, queryFn: () => accountService.listAddresses() });
   const pending = useQuery({ queryKey: queryKeys.pendingReviews, queryFn: () => accountService.listPendingReviews() });
 
   return (
@@ -28,7 +29,7 @@ export function AccountOverview() {
       {/* Atalhos */}
       <div className="grid gap-4 sm:grid-cols-3">
         <Shortcut to="/minha-conta/pedidos" icon={Package} label="Pedidos" value={orders.data?.length ?? 0} />
-        <Shortcut to="/minha-conta/enderecos" icon={MapPin} label="Endereços salvos" value={2} />
+        <Shortcut to="/minha-conta/enderecos" icon={MapPin} label="Endereços salvos" value={addresses.data?.length ?? 0} />
         <Shortcut to="/minha-conta/avaliacoes" icon={Star} label="Avaliações pendentes" value={pending.data?.length ?? 0} />
       </div>
 
@@ -42,7 +43,7 @@ export function AccountOverview() {
         </div>
         {orders.isLoading ? (
           <Skeleton className="h-24 w-full rounded-[var(--radius-lg)]" />
-        ) : (
+        ) : orders.data?.length ? (
           <ul className="flex flex-col gap-3">
             {orders.data?.slice(0, 3).map((o) => (
               <li key={o.id}>
@@ -59,6 +60,10 @@ export function AccountOverview() {
               </li>
             ))}
           </ul>
+        ) : (
+          <p className="rounded-[var(--radius-lg)] border border-border bg-surface p-4 text-sm text-graphite-soft">
+            Seus pedidos recentes aparecerão aqui.
+          </p>
         )}
       </section>
     </div>

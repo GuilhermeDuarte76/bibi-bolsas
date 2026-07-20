@@ -6,6 +6,7 @@ import { useCart } from '@/store/cart';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { EmptyState } from '@/components/ui/States';
 import { formatPrice } from '@/lib/utils';
+import { toast } from '@/components/ui/Toast';
 
 export function CartDrawer() {
   const { cartOpen, closeCart } = useUI();
@@ -31,6 +32,18 @@ export function CartDrawer() {
   const goCheckout = () => {
     closeCart();
     navigate('/checkout');
+  };
+
+  const safeRemove = (lineId: string) => {
+    void removeItem(lineId).catch((error) =>
+      toast.error((error as Error).message || 'Não foi possível remover o item.'),
+    );
+  };
+
+  const safeSetQuantity = (lineId: string, quantity: number) => {
+    void setQuantity(lineId, quantity).catch((error) =>
+      toast.error((error as Error).message || 'Não foi possível atualizar a quantidade.'),
+    );
   };
 
   return (
@@ -87,7 +100,7 @@ export function CartDrawer() {
                         {item.name}
                       </Link>
                       <button
-                        onClick={() => removeItem(item.id)}
+                        onClick={() => safeRemove(item.id)}
                         aria-label={`Remover ${item.name}`}
                         className="tactile rounded p-1 text-store-gray hover:text-danger"
                       >
@@ -101,7 +114,7 @@ export function CartDrawer() {
                     <div className="mt-auto flex items-center justify-between pt-2">
                       <div className="flex items-center rounded-full border border-border">
                         <button
-                          onClick={() => setQuantity(item.id, item.quantity - 1)}
+                          onClick={() => safeSetQuantity(item.id, item.quantity - 1)}
                           disabled={item.quantity <= 1}
                           aria-label="Diminuir quantidade"
                           className="tactile grid h-8 w-8 place-items-center rounded-full text-graphite disabled:opacity-40"
@@ -110,7 +123,7 @@ export function CartDrawer() {
                         </button>
                         <span className="w-7 text-center text-sm font-medium">{item.quantity}</span>
                         <button
-                          onClick={() => setQuantity(item.id, item.quantity + 1)}
+                          onClick={() => safeSetQuantity(item.id, item.quantity + 1)}
                           disabled={item.quantity >= item.maxStock}
                           aria-label="Aumentar quantidade"
                           className="tactile grid h-8 w-8 place-items-center rounded-full text-graphite disabled:opacity-40"

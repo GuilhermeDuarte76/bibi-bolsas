@@ -1,4 +1,5 @@
-import type { AppliedCoupon, ShippingOption } from '@/types';
+import type { AppliedCoupon, Cart, CartItem, ShippingOption } from '@/types';
+import { productImage } from '@/lib/images';
 import { USE_MOCK } from './config';
 import { delay, http } from './http';
 
@@ -13,7 +14,142 @@ const MOCK_COUPONS: Record<string, Omit<AppliedCoupon, 'discountCents'> & { kind
   FRETEGRATIS: { code: 'FRETEGRATIS', description: 'Frete gratis acima de R$ 299', kind: 'fixed', value: 0 },
 };
 
+interface BackendCartDto {
+  id: number;
+  cartSessionId?: string | null;
+  status: string;
+  items: BackendCartItemDto[];
+  totalItems: number;
+  subtotal: number;
+  totalWithoutShipping: number;
+  hasUnavailableItems: boolean;
+  hasPriceChanges: boolean;
+  expiresAt: string;
+  messages: string[];
+}
+
+interface BackendCartItemDto {
+  id: number;
+  productId: number;
+  productSlug: string;
+  productName: string;
+  variantId: number;
+  sku: string;
+  variantName: string;
+  imageUrl?: string | null;
+  quantity: number;
+  unitPrice: number;
+  promotionalPrice?: number | null;
+  effectiveUnitPrice: number;
+  lineTotal: number;
+  isAvailable: boolean;
+  availableQuantity: number;
+  hasPriceChanged: boolean;
+  messages: string[];
+}
+
+function toCents(value: number): number {
+  return Math.round(Number(value) * 100);
+}
+
+function mapBackendCartItem(item: BackendCartItemDto): CartItem {
+  const basePriceCents = toCents(item.unitPrice);
+  const effectivePriceCents = toCents(item.effectiveUnitPrice);
+
+  return {
+    id: String(item.id),
+    productId: String(item.productId),
+    slug: item.productSlug,
+    variantId: String(item.variantId),
+    name: item.productName,
+    colorName: item.variantName || item.sku,
+    image: item.imageUrl || productImage('bolsas', 'terracotta', item.id),
+    unitPriceCents: effectivePriceCents,
+    compareAtCents: effectivePriceCents < basePriceCents ? basePriceCents : undefined,
+    quantity: item.quantity,
+    maxStock: Math.max(0, item.availableQuantity),
+  };
+}
+
+function mapBackendCart(cart: BackendCartDto): Cart {
+  const subtotalCents = toCents(cart.subtotal);
+
+  return {
+    id: cart.cartSessionId || '',
+    backendId: cart.id,
+    items: cart.items.map(mapBackendCartItem),
+    subtotalCents,
+    discountCents: 0,
+    shippingCents: 0,
+    totalCents: subtotalCents,
+  };
+}
+
 export const cartService = {
+  async getCart(cartSessionId?: string): Promise<Cart> {
+    return mapBackendCart(
+      await http<BackendCartDto>('/carrinho', {
+        query: { cartSessionId },
+      }),
+    );
+  },
+
+  async addItem(input: {
+    productVariantId: number;
+    quantity: number;
+    cartSessionId?: string;
+  }): Promise<Cart> {
+    return mapBackendCart(
+      await http<BackendCartDto>('/carrinho/itens', {
+        method: 'POST',
+        body: input,
+      }),
+    );
+  },
+
+  async updateItem(input: {
+    itemId: number;
+    quantity: number;
+    cartSessionId?: string;
+  }): Promise<Cart> {
+    return mapBackendCart(
+      await http<BackendCartDto>(`/carrinho/itens/${input.itemId}`, {
+        method: 'PUT',
+        body: {
+          quantity: input.quantity,
+          cartSessionId: input.cartSessionId,
+        },
+      }),
+    );
+  },
+
+  async removeItem(input: { itemId: number; cartSessionId?: string }): Promise<Cart> {
+    return mapBackendCart(
+      await http<BackendCartDto>(`/carrinho/itens/${input.itemId}`, {
+        method: 'DELETE',
+        query: { cartSessionId: input.cartSessionId },
+      }),
+    );
+  },
+
+  async validateCart(cartSessionId?: string): Promise<Cart> {
+    return mapBackendCart(
+      await http<BackendCartDto>('/carrinho/validar', {
+        method: 'POST',
+        body: { cartSessionId },
+      }),
+    );
+  },
+
+  async mergeCart(cartSessionId: string): Promise<Cart> {
+    return mapBackendCart(
+      await http<BackendCartDto>('/carrinho/merge', {
+        method: 'POST',
+        body: { cartSessionId },
+      }),
+    );
+  },
+
   /** Cotacao de frete por CEP. Validade curta — deve ser revalidada no checkout. */
   async quoteShipping(zip: string, subtotalCents: number): Promise<ShippingOption[]> {
     const digits = zip.replace(/\D/g, '');
@@ -50,8 +186,8 @@ export const cartService = {
       ];
       return delay(base, 600);
     }
-    // TODO(backend): POST /cart/shipping/quote { zip, items } — backend usa Melhor Envio/Frenet
-    return http('/cart/shipping/quote', { method: 'POST', body: { zip, subtotalCents } });
+
+    throw new Error('Frete calculado no checkout após escolher um endereço salvo');
   },
 
   /** Valida e aplica cupom. O desconto final e responsabilidade do backend. */
@@ -72,7 +208,6 @@ export const cartService = {
         found.kind === 'percent' ? Math.round(subtotalCents * (found.value / 100)) : found.value;
       return delay({ code: found.code, description: found.description, discountCents });
     }
-    // TODO(backend): POST /cart/coupon { code } — backend recalcula desconto
-    return http('/cart/coupon', { method: 'POST', body: { code, subtotalCents } });
+    throw new Error('Cupom deve ser aplicado no checkout');
   },
 };

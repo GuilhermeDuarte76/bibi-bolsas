@@ -18,6 +18,7 @@ export function PaymentMethodSelector({
   onInstallmentsChange,
   maxInstallments = 10,
   pixPct = 5,
+  enabledMethods,
 }: {
   value: PaymentMethod;
   onChange: (m: PaymentMethod) => void;
@@ -26,17 +27,27 @@ export function PaymentMethodSelector({
   onInstallmentsChange: (n: number) => void;
   maxInstallments?: number;
   pixPct?: number;
+  enabledMethods?: PaymentMethod[];
 }) {
   return (
     <div className="flex flex-col gap-3">
       {METHODS.map((m) => {
         const active = value === m.id;
+        const enabled = !enabledMethods || enabledMethods.includes(m.id);
         const Icon = m.icon;
         return (
-          <div key={m.id} className={cn('rounded-[var(--radius-lg)] border transition-colors', active ? 'border-terracotta bg-terracotta/5' : 'border-border')}>
+          <div
+            key={m.id}
+            className={cn(
+              'rounded-[var(--radius-lg)] border transition-colors',
+              active ? 'border-terracotta bg-terracotta/5' : 'border-border',
+              !enabled && 'opacity-55',
+            )}
+          >
             <button
               type="button"
-              onClick={() => onChange(m.id)}
+              onClick={() => enabled && onChange(m.id)}
+              disabled={!enabled}
               className="flex w-full items-center gap-3 p-4 text-left"
               aria-pressed={active}
             >
@@ -45,7 +56,9 @@ export function PaymentMethodSelector({
               </span>
               <span className="flex-1">
                 <span className="block font-medium text-graphite">{m.label}</span>
-                <span className="block text-xs text-graphite-soft">{m.desc}</span>
+                <span className="block text-xs text-graphite-soft">
+                  {enabled ? m.desc : 'Disponível em uma próxima etapa'}
+                </span>
               </span>
               <span className={cn('grid h-5 w-5 place-items-center rounded-full border', active ? 'border-terracotta' : 'border-border')}>
                 {active && <span className="h-2.5 w-2.5 rounded-full bg-terracotta" />}

@@ -28,6 +28,14 @@ const CATEGORY_TITLES: Record<string, { title: string; subtitle: string }> = {
   promocoes: { title: 'Promoções', subtitle: 'Curadoria especial com preços especiais.' },
 };
 
+function titleFromSlug(slug: string): string {
+  return slug
+    .split('-')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
 export function CatalogPage() {
   const { slug } = useParams<{ slug: string }>();
   const [params, setParams] = useSearchParams();
@@ -60,7 +68,10 @@ export function CatalogPage() {
   });
 
   const heading = category
-    ? CATEGORY_TITLES[category]
+    ? CATEGORY_TITLES[category] ?? {
+        title: titleFromSlug(category),
+        subtitle: 'Produtos selecionados para esta categoria.',
+      }
     : filters.search
       ? { title: `Resultados para “${filters.search}”`, subtitle: '' }
       : { title: 'Toda a vitrine', subtitle: 'Bolsas, mochilas, malas e muito mais.' };

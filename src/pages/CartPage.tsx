@@ -4,6 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Handbag, Minus, Plus, Tag, Trash, X } from '@phosphor-icons/react';
 import { useCart } from '@/store/cart';
 import { cartService } from '@/lib/api';
+import { USE_MOCK } from '@/lib/api/config';
 import { toast } from '@/components/ui/Toast';
 import { Container } from '@/components/ui/Layout';
 import { Button } from '@/components/ui/Button';
@@ -31,6 +32,18 @@ export function CartPage() {
     },
     onError: (e) => toast.error((e as Error).message),
   });
+
+  const safeRemove = (lineId: string) => {
+    void removeItem(lineId).catch((error) =>
+      toast.error((error as Error).message || 'Não foi possível remover o item.'),
+    );
+  };
+
+  const safeSetQuantity = (lineId: string, quantity: number) => {
+    void setQuantity(lineId, quantity).catch((error) =>
+      toast.error((error as Error).message || 'Não foi possível atualizar a quantidade.'),
+    );
+  };
 
   if (items.length === 0) {
     return (
@@ -69,17 +82,17 @@ export function CartPage() {
                         {item.sizeLabel ? ` · ${item.sizeLabel}` : ''}
                       </p>
                     </div>
-                    <button onClick={() => removeItem(item.id)} aria-label={`Remover ${item.name}`} className="tactile rounded p-1 text-store-gray hover:text-danger">
+                    <button onClick={() => safeRemove(item.id)} aria-label={`Remover ${item.name}`} className="tactile rounded p-1 text-store-gray hover:text-danger">
                       <Trash size={18} />
                     </button>
                   </div>
                   <div className="mt-auto flex items-center justify-between pt-3">
                     <div className="flex items-center rounded-full border border-border">
-                      <button onClick={() => setQuantity(item.id, item.quantity - 1)} disabled={item.quantity <= 1} aria-label="Diminuir" className="tactile grid h-9 w-9 place-items-center rounded-full disabled:opacity-40">
+                      <button onClick={() => safeSetQuantity(item.id, item.quantity - 1)} disabled={item.quantity <= 1} aria-label="Diminuir" className="tactile grid h-9 w-9 place-items-center rounded-full disabled:opacity-40">
                         <Minus size={14} />
                       </button>
                       <span className="w-8 text-center text-sm font-medium">{item.quantity}</span>
-                      <button onClick={() => setQuantity(item.id, item.quantity + 1)} disabled={item.quantity >= item.maxStock} aria-label="Aumentar" className="tactile grid h-9 w-9 place-items-center rounded-full disabled:opacity-40">
+                      <button onClick={() => safeSetQuantity(item.id, item.quantity + 1)} disabled={item.quantity >= item.maxStock} aria-label="Aumentar" className="tactile grid h-9 w-9 place-items-center rounded-full disabled:opacity-40">
                         <Plus size={14} />
                       </button>
                     </div>
@@ -107,46 +120,54 @@ export function CartPage() {
             <h2 className="font-display text-xl text-graphite">Resumo do pedido</h2>
 
             {/* Cupom */}
-            <div className="mt-5">
-              {coupon ? (
-                <div className="flex items-center justify-between rounded-[var(--radius-md)] bg-success-soft px-3 py-2.5 text-sm">
-                  <span className="flex items-center gap-2 font-medium text-success">
-                    <Tag size={16} /> {coupon.code}
-                  </span>
-                  <button onClick={() => setCoupon(undefined)} aria-label="Remover cupom" className="tactile rounded p-1 text-success hover:bg-success/10">
-                    <X size={16} />
-                  </button>
-                </div>
-              ) : (
-                <form
-                  onSubmit={(e) => { e.preventDefault(); if (code.trim()) applyCoupon.mutate(); }}
-                  className="flex gap-2"
-                >
-                  <Input
-                    placeholder="Cupom de desconto"
-                    value={code}
-                    onChange={(e) => setCode(e.target.value.toUpperCase())}
-                    aria-label="Código do cupom"
-                  />
-                  <Button type="submit" variant="outline" loading={applyCoupon.isPending} disabled={!code.trim()}>
-                    Aplicar
-                  </Button>
-                </form>
-              )}
-            </div>
+            {USE_MOCK ? (
+              <div className="mt-5">
+                {coupon ? (
+                  <div className="flex items-center justify-between rounded-[var(--radius-md)] bg-success-soft px-3 py-2.5 text-sm">
+                    <span className="flex items-center gap-2 font-medium text-success">
+                      <Tag size={16} /> {coupon.code}
+                    </span>
+                    <button onClick={() => setCoupon(undefined)} aria-label="Remover cupom" className="tactile rounded p-1 text-success hover:bg-success/10">
+                      <X size={16} />
+                    </button>
+                  </div>
+                ) : (
+                  <form
+                    onSubmit={(e) => { e.preventDefault(); if (code.trim()) applyCoupon.mutate(); }}
+                    className="flex gap-2"
+                  >
+                    <Input
+                      placeholder="Cupom de desconto"
+                      value={code}
+                      onChange={(e) => setCode(e.target.value.toUpperCase())}
+                      aria-label="Código do cupom"
+                    />
+                    <Button type="submit" variant="outline" loading={applyCoupon.isPending} disabled={!code.trim()}>
+                      Aplicar
+                    </Button>
+                  </form>
+                )}
+              </div>
+            ) : (
+              <div className="mt-5 rounded-[var(--radius-md)] bg-cream-light px-3 py-2.5 text-sm text-graphite-soft">
+                Cupom e frete são aplicados com segurança no checkout.
+              </div>
+            )}
 
             {/* Frete */}
-            <div className="mt-4">
-              <ShippingCalculator
-                subtotalCents={subtotal}
-                onSelect={(opt) => { setShipping(opt); toast.success(`Frete ${opt.service} selecionado`); }}
-              />
-              {shipping && (
-                <p className="mt-2 text-sm text-graphite-soft">
-                  Entrega: <strong className="text-graphite">{shipping.service}</strong> ({shipping.priceCents === 0 ? 'grátis' : formatPrice(shipping.priceCents)})
-                </p>
-              )}
-            </div>
+            {USE_MOCK && (
+              <div className="mt-4">
+                <ShippingCalculator
+                  subtotalCents={subtotal}
+                  onSelect={(opt) => { setShipping(opt); toast.success(`Frete ${opt.service} selecionado`); }}
+                />
+                {shipping && (
+                  <p className="mt-2 text-sm text-graphite-soft">
+                    Entrega: <strong className="text-graphite">{shipping.service}</strong> ({shipping.priceCents === 0 ? 'grátis' : formatPrice(shipping.priceCents)})
+                  </p>
+                )}
+              </div>
+            )}
 
             {/* Totais */}
             <dl className="mt-5 flex flex-col gap-2 border-t border-border pt-5 text-sm">

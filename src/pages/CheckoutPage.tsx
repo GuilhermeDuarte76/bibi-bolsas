@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -12,6 +12,7 @@ import {
   queryKeys,
   type CheckoutResult,
 } from '@/lib/api';
+import { USE_MOCK } from '@/lib/api/config';
 import { useAuth } from '@/hooks/useAuth';
 import { identitySchema, type IdentityFormValues } from '@/lib/validation';
 import type { Address, PaymentMethod, ShippingOption } from '@/types';
@@ -29,7 +30,8 @@ import { formatCpf, formatPhone, formatPrice, formatZip } from '@/lib/utils';
 export function CheckoutPage() {
   const navigate = useNavigate();
   const cart = useCart();
-  const { customer } = useAuth();
+  const syncCart = useCart((state) => state.sync);
+  const { customer, isAuthenticated, isLoading: authLoading } = useAuth();
   const [step, setStep] = useState(0);
 
   const [identity, setIdentity] = useState<IdentityFormValues | null>(null);
@@ -42,6 +44,21 @@ export function CheckoutPage() {
   const discount = cart.discountCents();
   const total = Math.max(0, subtotal - discount) + (shipping?.priceCents ?? 0);
 
+  const profile = useQuery({
+    queryKey: queryKeys.customer,
+    queryFn: () => accountService.getCustomer(),
+    enabled: !USE_MOCK && isAuthenticated,
+  });
+
+  useEffect(() => {
+    if (USE_MOCK || !isAuthenticated) return;
+    void syncCart().catch(() => {
+      toast.error('Não foi possível sincronizar sua sacola.');
+    });
+  }, [isAuthenticated, syncCart]);
+
+  const checkoutCustomer = profile.data ?? customer;
+
   if (cart.items.length === 0) {
     return (
       <Container className="py-16">
@@ -49,6 +66,30 @@ export function CheckoutPage() {
           title="Nada para finalizar"
           description="Sua sacola está vazia. Adicione produtos antes de ir ao checkout."
           action={{ label: 'Ver vitrine', onClick: () => navigate('/catalogo') }}
+        />
+      </Container>
+    );
+  }
+
+  if (!USE_MOCK && !authLoading && !isAuthenticated) {
+    return (
+      <Container className="py-16">
+        <EmptyState
+          title="Entre para finalizar"
+          description="Para proteger seus dados, o checkout usa sua conta e seus endereços salvos."
+          action={{ label: 'Entrar na conta', onClick: () => navigate('/entrar') }}
+        />
+      </Container>
+    );
+  }
+
+  if (!USE_MOCK && !cart.backendCartId) {
+    return (
+      <Container className="py-16">
+        <EmptyState
+          title="Sincronizando sua sacola"
+          description="Estamos preparando seu carrinho seguro antes de seguir para o checkout."
+          action={{ label: 'Tentar novamente', onClick: () => void cart.sync() }}
         />
       </Container>
     );
@@ -70,7 +111,7 @@ export function CheckoutPage() {
           <div className="min-w-0">
             {step === 0 && (
               <IdentityStep
-                customer={customer}
+                customer={checkoutCustomer}
                 onSubmit={(v) => { setIdentity(v); goNext(); }}
               />
             )}
@@ -83,6 +124,7 @@ export function CheckoutPage() {
             {step === 2 && address && (
               <ShippingStep
                 address={address}
+                cartId={cart.backendCartId}
                 subtotalCents={Math.max(0, subtotal - discount)}
                 selected={shipping}
                 onSelect={(s) => { setShipping(s); cart.setShipping(s, address.zip); goNext(); }}
@@ -97,7 +139,16 @@ export function CheckoutPage() {
                   totalCents={total}
                   installments={installments}
                   onInstallmentsChange={setInstallments}
+                  enabledMethods={USE_MOCK ? undefined : ['pix']}
                 />
+                {address && shipping && (
+                  <CouponBox
+                    cartId={cart.backendCartId}
+                    address={address}
+                    shipping={shipping}
+                    subtotalCents={subtotal}
+                  />
+                )}
                 <Button size="lg" className="mt-6" onClick={goNext}>Revisar pedido</Button>
               </div>
             )}
@@ -108,6 +159,7 @@ export function CheckoutPage() {
                 shipping={shipping}
                 payment={payment}
                 installments={installments}
+                cartId={cart.backendCartId}
               />
             )}
           </div>
@@ -135,6 +187,19 @@ export function CheckoutPage() {
 
 // ---- Etapa 1: Identificacao ----
 function IdentityStep({ customer, onSubmit }: { customer: ReturnType<typeof useAuth>['customer']; onSubmit: (v: IdentityFormValues) => void }) {
+  const saveProfile = useMutation({
+    mutationFn: (values: IdentityFormValues) =>
+      accountService.updateCustomer({
+        name: values.name,
+        email: values.email,
+        phone: values.phone,
+        document: values.document,
+        termsAccepted: values.termsAccepted,
+      }),
+    onSuccess: (_, values) => onSubmit(values),
+    onError: (error) => toast.error((error as Error).message || 'Não foi possível salvar sua identificação.'),
+  });
+
   const { register, handleSubmit, setValue, formState: { errors } } = useForm<IdentityFormValues>({
     resolver: zodResolver(identitySchema),
     defaultValues: {
@@ -142,15 +207,16 @@ function IdentityStep({ customer, onSubmit }: { customer: ReturnType<typeof useA
       email: customer?.email ?? '',
       phone: customer?.phone ?? '',
       document: customer?.document ?? '',
+      termsAccepted: customer?.termsAccepted ?? false,
     },
   });
 
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="flex flex-col gap-4">
+    <form onSubmit={handleSubmit((values) => saveProfile.mutate(values))} className="flex flex-col gap-4">
       <h2 className="font-display text-2xl text-graphite">Identificação</h2>
       {!customer && (
         <p className="text-sm text-graphite-soft">
-          Já tem conta? <a href="/entrar" className="font-medium text-terracotta hover:underline">Entrar</a> para um checkout mais rápido. É opcional.
+          Já tem conta? <a href="/entrar" className="font-medium text-terracotta hover:underline">Entrar</a> para um checkout mais rápido.
         </p>
       )}
       <Field label="Nome completo" error={errors.name?.message} required>
@@ -167,7 +233,16 @@ function IdentityStep({ customer, onSubmit }: { customer: ReturnType<typeof useA
           {(id, d) => <Input id={id} inputMode="numeric" aria-describedby={d} placeholder="000.000.000-00" {...register('document', { onChange: (e) => setValue('document', formatCpf(e.target.value)) })} />}
         </Field>
       </div>
-      <Button type="submit" size="lg" className="mt-2 self-start">Continuar</Button>
+      <label className="flex items-start gap-2.5 text-sm text-graphite-soft">
+        <input type="checkbox" {...register('termsAccepted')} className="mt-0.5 h-4 w-4 rounded border-border accent-terracotta" />
+        <span>
+          Li e aceito os termos de compra e o uso dos meus dados para processar o pedido.
+          {errors.termsAccepted?.message && (
+            <span className="mt-1 block text-danger">{errors.termsAccepted.message}</span>
+          )}
+        </span>
+      </label>
+      <Button type="submit" size="lg" loading={saveProfile.isPending} className="mt-2 self-start">Continuar</Button>
     </form>
   );
 }
@@ -176,7 +251,10 @@ function IdentityStep({ customer, onSubmit }: { customer: ReturnType<typeof useA
 function AddressStep({ selected, onSelect }: { selected: Address | null; onSelect: (a: Address) => void }) {
   const { data: addresses, isLoading } = useQuery({ queryKey: queryKeys.addresses, queryFn: () => accountService.listAddresses() });
   const [adding, setAdding] = useState(false);
-  const save = useMutation({ mutationFn: accountService.saveAddress });
+  const save = useMutation({
+    mutationFn: accountService.saveAddress,
+    onError: (error) => toast.error((error as Error).message || 'Não foi possível salvar o endereço.'),
+  });
 
   return (
     <div>
@@ -227,10 +305,17 @@ function AddressStep({ selected, onSelect }: { selected: Address | null; onSelec
 }
 
 // ---- Etapa 3: Entrega ----
-function ShippingStep({ address, subtotalCents, selected, onSelect }: { address: Address; subtotalCents: number; selected: ShippingOption | null; onSelect: (s: ShippingOption) => void }) {
+function ShippingStep({ address, cartId, subtotalCents, selected, onSelect }: { address: Address; cartId?: number; subtotalCents: number; selected: ShippingOption | null; onSelect: (s: ShippingOption) => void }) {
   const { data, isLoading, isError, refetch } = useQuery({
-    queryKey: ['shipping', address.zip, subtotalCents],
-    queryFn: () => cartService.quoteShipping(address.zip, subtotalCents),
+    queryKey: ['shipping', cartId, address.id, address.zip, subtotalCents],
+    queryFn: () => {
+      if (USE_MOCK) return cartService.quoteShipping(address.zip, subtotalCents);
+      const addressId = Number(address.id);
+      if (!cartId || !Number.isInteger(addressId)) {
+        throw new Error('Carrinho e endereço precisam estar sincronizados.');
+      }
+      return checkoutService.getShippingOptions({ cartId, addressId });
+    },
   });
   const [pick, setPick] = useState<ShippingOption | null>(selected);
 
@@ -270,8 +355,101 @@ function ShippingStep({ address, subtotalCents, selected, onSelect }: { address:
   );
 }
 
+function CouponBox({
+  cartId,
+  address,
+  shipping,
+  subtotalCents,
+}: {
+  cartId?: number;
+  address: Address;
+  shipping: ShippingOption;
+  subtotalCents: number;
+}) {
+  const cart = useCart();
+  const [code, setCode] = useState(cart.coupon?.code ?? '');
+
+  const applyCoupon = useMutation({
+    mutationFn: async () => {
+      const normalized = code.trim().toUpperCase();
+      if (!normalized) throw new Error('Informe um cupom.');
+
+      if (USE_MOCK) return cartService.applyCoupon(normalized, subtotalCents);
+
+      const addressId = Number(address.id);
+      if (!cartId || !Number.isInteger(addressId)) {
+        throw new Error('Carrinho e endereço precisam estar sincronizados.');
+      }
+
+      const result = await checkoutService.validateCoupon({
+        cartId,
+        addressId,
+        couponCode: normalized,
+        shipping,
+      });
+
+      if (!result.isValid) {
+        throw new Error(result.issues[0] || result.message || 'Cupom inválido.');
+      }
+
+      return {
+        code: result.couponCode || normalized,
+        description: result.message,
+        discountCents: result.discountCents,
+      };
+    },
+    onSuccess: (coupon) => {
+      cart.setCoupon(coupon);
+      setCode(coupon.code);
+      toast.success(`Cupom ${coupon.code} aplicado`);
+    },
+    onError: (error) => toast.error((error as Error).message || 'Não foi possível aplicar o cupom.'),
+  });
+
+  return (
+    <div className="mt-5 rounded-[var(--radius-lg)] border border-border bg-surface p-4">
+      <p className="mb-3 text-sm font-semibold text-graphite">Cupom de desconto</p>
+      {cart.coupon ? (
+        <div className="flex items-center justify-between gap-3 text-sm">
+          <span className="text-success">
+            {cart.coupon.code} aplicado · - {formatPrice(cart.coupon.discountCents)}
+          </span>
+          <button
+            type="button"
+            onClick={() => {
+              cart.setCoupon(undefined);
+              setCode('');
+            }}
+            className="font-medium text-graphite-soft hover:text-graphite"
+          >
+            Remover
+          </button>
+        </div>
+      ) : (
+        <form
+          onSubmit={(event) => {
+            event.preventDefault();
+            applyCoupon.mutate();
+          }}
+          className="flex gap-2"
+        >
+          <Input
+            value={code}
+            onChange={(event) => setCode(event.target.value.toUpperCase())}
+            placeholder="Digite seu cupom"
+            aria-label="Cupom de desconto"
+          />
+          <Button type="submit" variant="outline" loading={applyCoupon.isPending} disabled={!code.trim()}>
+            Aplicar
+          </Button>
+        </form>
+      )}
+    </div>
+  );
+}
+
 // ---- Etapa 4: Revisao ----
-function ReviewStep({ identity, address, shipping, payment, installments }: { identity: IdentityFormValues; address: Address; shipping: ShippingOption; payment: PaymentMethod; installments: number }) {
+function ReviewStep({ identity, address, shipping, payment, installments, cartId }: { identity: IdentityFormValues; address: Address; shipping: ShippingOption; payment: PaymentMethod; installments: number; cartId?: number }) {
   const navigate = useNavigate();
   const cart = useCart();
 
@@ -280,6 +458,7 @@ function ReviewStep({ identity, address, shipping, payment, installments }: { id
       checkoutService.createOrder({
         cart: {
           id: cart.cartId,
+          backendId: cart.backendCartId,
           items: cart.items,
           coupon: cart.coupon,
           shipping,
@@ -288,20 +467,23 @@ function ReviewStep({ identity, address, shipping, payment, installments }: { id
           shippingCents: shipping.priceCents,
           totalCents: Math.max(0, cart.subtotalCents() - cart.discountCents()) + shipping.priceCents,
         },
+        cartId,
         address,
+        addressId: Number(address.id),
         shipping,
+        couponCode: cart.coupon?.code,
         paymentMethod: payment,
         installments,
       }),
     onSuccess: (res: CheckoutResult) => {
       cart.clear();
-      if (res.order.paymentMethod === 'pix') {
-        navigate('/checkout/pagamento-pendente', { state: { result: res } });
-      } else {
+      if (res.order.status === 'paid') {
         navigate('/checkout/sucesso', { state: { result: res } });
+      } else {
+        navigate('/checkout/pagamento-pendente', { state: { result: res } });
       }
     },
-    onError: () => toast.error('Não foi possível finalizar. Tente novamente.'),
+    onError: (error) => toast.error((error as Error).message || 'Não foi possível finalizar. Tente novamente.'),
   });
 
   const methodLabel = payment === 'pix' ? 'Pix' : payment === 'credit_card' ? `Cartão · ${installments}x` : 'Boleto';

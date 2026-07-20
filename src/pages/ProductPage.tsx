@@ -13,6 +13,7 @@ import { Stars } from '@/components/ui/Stars';
 import { Badge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/States';
+import { USE_MOCK } from '@/lib/api/config';
 import { ProductGallery } from '@/components/product/ProductGallery';
 import { ProductGalleryFallback } from '@/components/product/ProductGalleryFallback';
 import { Swatches } from '@/components/product/Swatches';
@@ -67,25 +68,31 @@ export function ProductPage() {
   const colorName = product.colors.find((c) => c.id === selectedColor)?.name ?? '';
   const sizeLabel = product.sizes.find((s) => s.id === selectedSize)?.label;
 
-  const handleAdd = (goCheckout = false) => {
+  const handleAdd = async (goCheckout = false) => {
     if (!variant || stock <= 0) return;
-    addItem({
-      productId: product.id,
-      slug: product.slug,
-      variantId: variant.id,
-      name: product.name,
-      colorName,
-      sizeLabel: sizeLabel === 'Unico' ? undefined : sizeLabel,
-      image: product.media[0].url,
-      unitPriceCents: variant.priceCents,
-      compareAtCents: variant.compareAtCents,
-      maxStock: variant.stock,
-      quantity: qty,
-    });
-    if (goCheckout) navigate('/checkout');
-    else {
-      toast.success('Adicionado à sacola');
-      openCart();
+
+    try {
+      await addItem({
+        productId: product.id,
+        slug: product.slug,
+        variantId: variant.id,
+        name: product.name,
+        colorName,
+        sizeLabel: sizeLabel === 'Unico' ? undefined : sizeLabel,
+        image: product.media[0].url,
+        unitPriceCents: variant.priceCents,
+        compareAtCents: variant.compareAtCents,
+        maxStock: variant.stock,
+        quantity: qty,
+      });
+
+      if (goCheckout) navigate('/checkout');
+      else {
+        toast.success('Adicionado à sacola');
+        openCart();
+      }
+    } catch (error) {
+      toast.error((error as Error).message || 'Não foi possível adicionar à sacola.');
     }
   };
 
@@ -193,10 +200,11 @@ export function ProductPage() {
             <ShieldCheck size={16} className="text-success" /> Compra 100% segura · Troca facilitada em até 7 dias
           </p>
 
-          {/* Frete */}
-          <div className="mt-6">
-            <ShippingCalculator subtotalCents={(variant?.priceCents ?? product.priceFromCents) * qty} />
-          </div>
+          {USE_MOCK && (
+            <div className="mt-6">
+              <ShippingCalculator subtotalCents={(variant?.priceCents ?? product.priceFromCents) * qty} />
+            </div>
+          )}
 
           {/* Acordeoes */}
           <div className="mt-8">

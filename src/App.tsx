@@ -30,6 +30,7 @@ const AdminLogin = lazy(() => import('@/pages/admin/AdminLogin').then((m) => ({ 
 const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
 const AdminProducts = lazy(() => import('@/pages/admin/AdminProducts').then((m) => ({ default: m.AdminProducts })));
 const AdminProductForm = lazy(() => import('@/pages/admin/AdminProductForm').then((m) => ({ default: m.AdminProductForm })));
+const AdminInventory = lazy(() => import('@/pages/admin/AdminInventory').then((m) => ({ default: m.AdminInventory })));
 const AdminOrders = lazy(() => import('@/pages/admin/AdminOrders').then((m) => ({ default: m.AdminOrders })));
 const AdminOrderDetail = lazy(() => import('@/pages/admin/AdminOrders').then((m) => ({ default: m.AdminOrderDetail })));
 const AdminReviews = lazy(() => import('@/pages/admin/AdminReviews').then((m) => ({ default: m.AdminReviews })));
@@ -102,6 +103,7 @@ export default function App() {
             <Route path="produtos" element={<AdminProducts />} />
             <Route path="produtos/novo" element={<AdminProductForm />} />
             <Route path="produtos/:id" element={<AdminProductForm />} />
+            <Route path="estoque" element={<AdminInventory />} />
             <Route path="pedidos" element={<AdminOrders />} />
             <Route path="pedidos/:id" element={<AdminOrderDetail />} />
             <Route path="clientes" element={<AdminCustomers />} />

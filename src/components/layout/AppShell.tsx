@@ -4,6 +4,7 @@ import { Header } from './Header';
 import { Footer } from './Footer';
 import { SearchOverlay } from './SearchOverlay';
 import { CartDrawer } from '@/components/cart/CartDrawer';
+import { useCart } from '@/store/cart';
 
 /** Rola para o topo a cada troca de rota. */
 function ScrollToTop() {
@@ -16,6 +17,12 @@ function ScrollToTop() {
 
 /** Casca da loja (cliente): header, conteudo, footer e overlays globais. */
 export function AppShell() {
+  const syncCart = useCart((state) => state.sync);
+
+  useEffect(() => {
+    void syncCart();
+  }, [syncCart]);
+
   return (
     <div className="flex min-h-screen flex-col">
       <ScrollToTop />

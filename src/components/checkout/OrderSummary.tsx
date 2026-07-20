@@ -56,7 +56,9 @@ export function OrderSummary({
         )}
         <div className="flex justify-between">
           <dt className="text-graphite-soft">Frete {shippingLabel ? `· ${shippingLabel}` : ''}</dt>
-          <dd className="text-graphite">{shippingCents === 0 ? 'Grátis' : formatPrice(shippingCents)}</dd>
+          <dd className="text-graphite">
+            {shippingLabel ? (shippingCents === 0 ? 'Grátis' : formatPrice(shippingCents)) : 'A calcular'}
+          </dd>
         </div>
       </dl>
       <div className="mt-4 flex items-center justify-between border-t border-border pt-4">
