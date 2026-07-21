@@ -111,7 +111,7 @@ export function Panel({ title, action, children, className }: { title?: string; 
   return (
     <section className={cn('rounded-[var(--radius-lg)] border border-border bg-surface p-5', className)}>
       {(title || action) && (
-        <div className="mb-4 flex items-center justify-between">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           {title && <h2 className="font-semibold text-graphite">{title}</h2>}
           {action}
         </div>

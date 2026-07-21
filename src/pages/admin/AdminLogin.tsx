@@ -2,6 +2,7 @@ import { useForm } from 'react-hook-form';
 import { useNavigate } from 'react-router-dom';
 import { ShieldCheck } from '@phosphor-icons/react';
 import { useAuth } from '@/hooks/useAuth';
+import { USE_MOCK } from '@/lib/api/config';
 import { Button } from '@/components/ui/Button';
 import { Field, Input } from '@/components/ui/Field';
 import { Logo } from '@/components/layout/Logo';
@@ -48,7 +49,9 @@ export function AdminLogin() {
             {(id, d) => <Input id={id} inputMode="numeric" maxLength={6} placeholder="000000" aria-describedby={d} {...register('otp')} />}
           </Field>
           <Button type="submit" size="lg" fullWidth loading={adminLogin.isPending}>Entrar no painel</Button>
-          <p className="text-center text-xs text-graphite-soft">Demonstração: qualquer senha funciona com dados mockados.</p>
+          {USE_MOCK && (
+            <p className="text-center text-xs text-graphite-soft">Demonstração: qualquer senha funciona com dados mockados.</p>
+          )}
         </form>
       </div>
     </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
@@ -6,11 +6,13 @@ import {
   FloppyDisk,
   Image as ImageIcon,
   Plus,
+  Star,
   Trash,
   UploadSimple,
   WarningCircle,
 } from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
+import { cn } from '@/lib/utils';
 import { PageHeader, Panel } from '@/components/admin/AdminUI';
 import { Button } from '@/components/ui/Button';
 import { Field, Input, Select, Textarea } from '@/components/ui/Field';
@@ -350,6 +352,8 @@ export function AdminProductForm() {
   const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([emptyVariant(true)]);
   const [images, setImages] = useState<ImageForm[]>([]);
+  const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const dragCounterRef = useRef(0);
 
   const productQuery = useQuery({
     queryKey: queryKeys.admin.product(id ?? ''),
@@ -523,21 +527,42 @@ export function AdminProductForm() {
     });
   };
 
-  const updateImage = (localId: string, patch: Partial<ImageForm>) => {
-    setImages((current) => current.map((image) => {
-      if (image.localId !== localId) return image;
-      return { ...image, ...patch };
-    }));
-  };
-
   const setMainImage = (localId: string) => {
     setImages((current) => current.map((image) => ({ ...image, isMain: image.localId === localId })));
   };
 
+  const uploadImageFiles = (files: FileList | File[] | null | undefined) => {
+    if (!files) return;
+    Array.from(files).forEach((file) => imageUploadMutation.mutate(file));
+  };
+
   const handleImageUploadChange = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (file) imageUploadMutation.mutate(file);
+    uploadImageFiles(event.target.files);
     event.target.value = '';
+  };
+
+  const handleImageDragEnter = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    if (!event.dataTransfer.types.includes('Files')) return;
+    dragCounterRef.current += 1;
+    setIsDraggingImages(true);
+  };
+
+  const handleImageDragOver = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+  };
+
+  const handleImageDragLeave = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragCounterRef.current = Math.max(0, dragCounterRef.current - 1);
+    if (dragCounterRef.current === 0) setIsDraggingImages(false);
+  };
+
+  const handleImageDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    dragCounterRef.current = 0;
+    setIsDraggingImages(false);
+    uploadImageFiles(event.dataTransfer.files);
   };
 
   const isLoading = (!isNew && productQuery.isLoading) || categoriesQuery.isLoading;
@@ -585,8 +610,8 @@ export function AdminProductForm() {
         )}
       />
 
-      <div className="grid gap-6 xl:grid-cols-[1.45fr_0.75fr]">
-        <div className="flex flex-col gap-6">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-[1.4fr_1fr]">
+        <div className="flex min-w-0 flex-col gap-4 sm:gap-6">
           <Panel title="Informações básicas">
             <div className="grid gap-4">
               <Field label="Nome" required>
@@ -947,7 +972,7 @@ export function AdminProductForm() {
           </Panel>
         </div>
 
-        <div className="flex flex-col gap-6">
+        <div className="flex min-w-0 flex-col gap-4 sm:gap-6">
           <Panel title="Publicação">
             <div className="grid gap-4">
               <Field label="Status">
@@ -990,26 +1015,15 @@ export function AdminProductForm() {
           <Panel
             title="Imagens"
             action={(
-              <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="secondary"
-                  loading={imageUploadMutation.isPending}
-                  disabled={saveMutation.isPending}
-                  onClick={() => imageUploadInputRef.current?.click()}
-                >
-                  <UploadSimple size={15} /> Enviar
-                </Button>
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="outline"
-                  onClick={() => setImages((current) => [...current, { ...emptyImage(), sortOrder: current.length, isMain: current.length === 0 }])}
-                >
-                  <Plus size={15} /> Adicionar
-                </Button>
-              </div>
+              <Button
+                type="button"
+                size="sm"
+                variant="secondary"
+                loading={imageUploadMutation.isPending}
+                onClick={() => imageUploadInputRef.current?.click()}
+              >
+                <UploadSimple size={15} /> Enviar fotos
+              </Button>
             )}
           >
             <div className="space-y-4">
@@ -1017,83 +1031,74 @@ export function AdminProductForm() {
                 ref={imageUploadInputRef}
                 type="file"
                 accept={IMAGE_UPLOAD_ACCEPT}
+                multiple
                 className="hidden"
                 onChange={handleImageUploadChange}
               />
-              {images.map((image, index) => (
-                <div key={image.localId} className="rounded-[var(--radius-md)] border border-border p-3">
-                  <div className="mb-3 flex items-start gap-3">
-                    {image.publicUrl ? (
-                      <img src={image.publicUrl} alt="" className="h-16 w-14 rounded-md object-cover" />
-                    ) : (
-                      <div className="grid h-16 w-14 place-items-center rounded-md border border-dashed border-border text-store-gray">
-                        <ImageIcon size={22} />
-                      </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <p className="font-medium text-graphite">Imagem {index + 1}</p>
-                        {image.isMain && <Pill tone="info">Principal</Pill>}
-                      </div>
-                      <p className="truncate text-xs text-graphite-soft">{image.publicUrl || 'Sem URL'}</p>
-                    </div>
-                    <Button type="button" size="sm" variant="ghost" onClick={() => setImages((current) => current.filter((item) => item.localId !== image.localId))}>
-                      <Trash size={15} />
-                    </Button>
-                  </div>
 
-                  <div className="grid gap-3">
-                    <Field label="URL pública">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={image.publicUrl}
-                          onChange={(event) => {
-                            const publicUrl = event.target.value;
-                            updateImage(image.localId, {
-                              publicUrl,
-                              storageKey: image.storageKey || storageKeyFromUrl(publicUrl),
-                            });
-                          }}
-                        />
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => imageUploadInputRef.current?.click()}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' || event.key === ' ') imageUploadInputRef.current?.click();
+                }}
+                onDragEnter={handleImageDragEnter}
+                onDragOver={handleImageDragOver}
+                onDragLeave={handleImageDragLeave}
+                onDrop={handleImageDrop}
+                className={cn(
+                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] border-2 border-dashed p-6 text-center transition-colors',
+                  isDraggingImages ? 'border-terracotta bg-terracotta/5' : 'border-border hover:border-terracotta/60',
+                )}
+              >
+                <UploadSimple size={24} className="text-store-gray" />
+                <p className="text-sm font-medium text-graphite">Arraste fotos aqui ou clique para enviar</p>
+                <p className="text-xs text-graphite-soft">JPG, PNG, WEBP ou GIF · até 10 MB · várias de uma vez</p>
+              </div>
+
+              {images.length > 0 && (
+                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4">
+                  {images.map((image) => (
+                    <div key={image.localId} className="group relative aspect-square overflow-hidden rounded-[var(--radius-md)] border border-border bg-cream-light">
+                      {image.publicUrl ? (
+                        <img src={image.publicUrl} alt={image.altText ?? ''} className="h-full w-full object-cover" />
+                      ) : (
+                        <div className="grid h-full w-full place-items-center text-store-gray">
+                          <ImageIcon size={24} />
+                        </div>
                       )}
-                    </Field>
-                    <Field label="Chave storage">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={image.storageKey}
-                          onChange={(event) => updateImage(image.localId, { storageKey: event.target.value })}
-                        />
+
+                      {image.isMain && (
+                        <span className="absolute left-1.5 top-1.5">
+                          <Pill tone="info">Principal</Pill>
+                        </span>
                       )}
-                    </Field>
-                    <Field label="Texto alternativo">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={image.altText ?? ''}
-                          onChange={(event) => updateImage(image.localId, { altText: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                    <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-                      <Field label="Ordem">
-                        {(fieldId) => (
-                          <Input
-                            id={fieldId}
-                            type="number"
-                            value={image.sortOrder}
-                            onChange={(event) => updateImage(image.localId, { sortOrder: inputToNumber(event.target.value) })}
-                          />
+
+                      <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                        {!image.isMain && (
+                          <button
+                            type="button"
+                            title="Tornar principal"
+                            onClick={() => setMainImage(image.localId)}
+                            className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-graphite shadow-sm hover:text-terracotta"
+                          >
+                            <Star size={14} />
+                          </button>
                         )}
-                      </Field>
-                      <Button type="button" variant="outline" className="self-end" onClick={() => setMainImage(image.localId)}>
-                        Principal
-                      </Button>
+                        <button
+                          type="button"
+                          title="Remover imagem"
+                          onClick={() => setImages((current) => current.filter((item) => item.localId !== image.localId))}
+                          className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-danger shadow-sm hover:bg-danger hover:text-white"
+                        >
+                          <Trash size={14} />
+                        </button>
+                      </div>
                     </div>
-                  </div>
+                  ))}
                 </div>
-              ))}
+              )}
               {images.length === 0 && <p className="text-sm text-graphite-soft">Nenhuma imagem cadastrada.</p>}
             </div>
           </Panel>
