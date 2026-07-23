@@ -160,6 +160,12 @@ function emptyImage(): ImageForm {
   };
 }
 
+function variantImageLabel(variant: VariantForm) {
+  const title = variant.name.trim() || variant.sku.trim() || 'SKU sem nome';
+  const details = [variant.color?.trim(), variant.size?.trim()].filter(Boolean).join(' / ');
+  return details ? `${variant.sku.trim() || 'SKU'} - ${title} (${details})` : `${variant.sku.trim() || 'SKU'} - ${title}`;
+}
+
 function variantFromProduct(product: AdminProduct): VariantForm[] {
   if (product.variants.length === 0) return [emptyVariant(true)];
 
@@ -326,8 +332,12 @@ function validateForm(form: ProductFormState, variants: VariantForm[], images: I
     }
   }
 
+  const savedVariantIds = new Set(variants.map((variant) => variant.id).filter(Boolean));
   for (const image of images) {
     if (!image.publicUrl.trim() && !image.storageKey.trim()) continue;
+    if (image.productVariantId && !savedVariantIds.has(image.productVariantId)) {
+      return 'Vincule imagens apenas a SKUs já salvos. Salve o produto primeiro e depois associe as fotos ao SKU.';
+    }
     if (!assertValidUrl(image.publicUrl.trim())) return 'Informe uma URL pública válida para cada imagem.';
     if (!image.storageKey.trim()) return 'Informe a chave de storage de cada imagem.';
   }
@@ -374,6 +384,13 @@ export function AdminProductForm() {
   const statusOptions = form.status === 'Archived'
     ? [...STATUS_OPTIONS, { value: 'Archived', label: 'Arquivado' }]
     : STATUS_OPTIONS;
+  const imageVariantOptions = useMemo(
+    () => variants.filter((variant) => Boolean(variant.id)).map((variant) => ({
+      id: variant.id!,
+      label: variantImageLabel(variant),
+    })),
+    [variants],
+  );
 
   useEffect(() => {
     if (!isNew && product) {
@@ -527,8 +544,36 @@ export function AdminProductForm() {
     });
   };
 
+  const updateImage = (localId: string, patch: Partial<ImageForm>) => {
+    setImages((current) => current.map((image) => (
+      image.localId === localId ? { ...image, ...patch } : image
+    )));
+  };
+
+  const updateImageVariant = (localId: string, productVariantId?: string) => {
+    setImages((current) => {
+      const selected = current.find((image) => image.localId === localId);
+      if (!selected) return current;
+
+      return current.map((image) => {
+        if (image.localId === localId) return { ...image, productVariantId };
+        if (selected.isMain && image.productVariantId === productVariantId) return { ...image, isMain: false };
+        return image;
+      });
+    });
+  };
+
   const setMainImage = (localId: string) => {
-    setImages((current) => current.map((image) => ({ ...image, isMain: image.localId === localId })));
+    setImages((current) => {
+      const selected = current.find((image) => image.localId === localId);
+      if (!selected) return current;
+
+      return current.map((image) => (
+        image.productVariantId === selected.productVariantId
+          ? { ...image, isMain: image.localId === localId }
+          : image
+      ));
+    });
   };
 
   const uploadImageFiles = (files: FileList | File[] | null | undefined) => {
@@ -1058,45 +1103,85 @@ export function AdminProductForm() {
               </div>
 
               {images.length > 0 && (
-                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-3 xl:grid-cols-4">
-                  {images.map((image) => (
-                    <div key={image.localId} className="group relative aspect-square overflow-hidden rounded-[var(--radius-md)] border border-border bg-cream-light">
-                      {image.publicUrl ? (
-                        <img src={image.publicUrl} alt={image.altText ?? ''} className="h-full w-full object-cover" />
-                      ) : (
-                        <div className="grid h-full w-full place-items-center text-store-gray">
-                          <ImageIcon size={24} />
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  {images.map((image) => {
+                    const scopeLabel = image.productVariantId
+                      ? imageVariantOptions.find((option) => option.id === image.productVariantId)?.label ?? 'SKU removido'
+                      : 'Produto geral';
+
+                    return (
+                      <div key={image.localId} className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
+                        <div className="group relative aspect-square overflow-hidden rounded-[var(--radius-md)] bg-cream-light">
+                          {image.publicUrl ? (
+                            <img src={image.publicUrl} alt={image.altText ?? ''} className="h-full w-full object-cover" />
+                          ) : (
+                            <div className="grid h-full w-full place-items-center text-store-gray">
+                              <ImageIcon size={24} />
+                            </div>
+                          )}
+
+                          <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-12px)] truncate rounded-full bg-surface/90 px-2 py-1 text-[11px] font-medium text-graphite shadow-sm">
+                            {scopeLabel}
+                          </span>
+
+                          {image.isMain && (
+                            <span className="absolute left-1.5 top-1.5">
+                              <Pill tone="info">Principal</Pill>
+                            </span>
+                          )}
+
+                          <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                            {!image.isMain && (
+                              <button
+                                type="button"
+                                title="Tornar principal"
+                                onClick={() => setMainImage(image.localId)}
+                                className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-graphite shadow-sm hover:text-terracotta"
+                              >
+                                <Star size={14} />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              title="Remover imagem"
+                              onClick={() => setImages((current) => current.filter((item) => item.localId !== image.localId))}
+                              className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-danger shadow-sm hover:bg-danger hover:text-white"
+                            >
+                              <Trash size={14} />
+                            </button>
+                          </div>
                         </div>
-                      )}
 
-                      {image.isMain && (
-                        <span className="absolute left-1.5 top-1.5">
-                          <Pill tone="info">Principal</Pill>
-                        </span>
-                      )}
-
-                      <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                        {!image.isMain && (
-                          <button
-                            type="button"
-                            title="Tornar principal"
-                            onClick={() => setMainImage(image.localId)}
-                            className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-graphite shadow-sm hover:text-terracotta"
-                          >
-                            <Star size={14} />
-                          </button>
-                        )}
-                        <button
-                          type="button"
-                          title="Remover imagem"
-                          onClick={() => setImages((current) => current.filter((item) => item.localId !== image.localId))}
-                          className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-danger shadow-sm hover:bg-danger hover:text-white"
-                        >
-                          <Trash size={14} />
-                        </button>
+                        <div className="mt-2 grid gap-2">
+                          <Field label="Imagem de">
+                            {(fieldId) => (
+                              <Select
+                                id={fieldId}
+                                value={image.productVariantId ?? ''}
+                                onChange={(event) => updateImageVariant(image.localId, event.target.value || undefined)}
+                                className="h-9 px-3 text-xs"
+                              >
+                                <option value="">Produto geral</option>
+                                {imageVariantOptions.map((option) => (
+                                  <option key={option.id} value={option.id}>{option.label}</option>
+                                ))}
+                              </Select>
+                            )}
+                          </Field>
+                          <Field label="Texto alternativo">
+                            {(fieldId) => (
+                              <Input
+                                id={fieldId}
+                                value={image.altText ?? ''}
+                                onChange={(event) => updateImage(image.localId, { altText: event.target.value })}
+                                className="h-9 px-3 text-xs"
+                              />
+                            )}
+                          </Field>
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {images.length === 0 && <p className="text-sm text-graphite-soft">Nenhuma imagem cadastrada.</p>}

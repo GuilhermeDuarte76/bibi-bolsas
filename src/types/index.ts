@@ -69,6 +69,7 @@ export interface ProductVariant {
 
 export interface ProductMedia {
   id: string;
+  productVariantId?: string;
   type: 'image' | 'video';
   url: string;
   /** Texto alternativo descritivo (acessibilidade obrigatoria). */

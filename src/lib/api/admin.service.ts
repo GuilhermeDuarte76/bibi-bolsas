@@ -1615,6 +1615,7 @@ function mockAdminProducts(): AdminProduct[] {
       images: product.media.map((media, index) => ({
         id: media.id,
         productId: product.id,
+        productVariantId: media.productVariantId,
         publicUrl: media.url,
         altText: media.alt,
         sortOrder: index,

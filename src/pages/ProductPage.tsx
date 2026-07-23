@@ -59,6 +59,22 @@ export function ProductPage() {
     );
   }, [product, selectedColor, selectedSize]);
 
+  const galleryMedia = useMemo(() => {
+    if (!product) return [];
+
+    const generalMedia = product.media.filter((media) => !media.productVariantId);
+    if (!variant) return generalMedia.length ? generalMedia : product.media;
+
+    const variantMedia = product.media.filter((media) => media.productVariantId === variant.id);
+    if (!variantMedia.length) return generalMedia.length ? generalMedia : product.media;
+
+    const variantMediaIds = new Set(variantMedia.map((media) => media.id));
+    return [
+      ...variantMedia,
+      ...generalMedia.filter((media) => !variantMediaIds.has(media.id)),
+    ];
+  }, [product, variant?.id]);
+
   const productReviews = allReviews.filter((r) => r.productId === product?.id);
 
   if (isLoading) return <ProductSkeleton />;
@@ -79,7 +95,7 @@ export function ProductPage() {
         name: product.name,
         colorName,
         sizeLabel: sizeLabel === 'Unico' ? undefined : sizeLabel,
-        image: product.media[0].url,
+        image: galleryMedia[0]?.url ?? product.media[0]?.url ?? '',
         unitPriceCents: variant.priceCents,
         compareAtCents: variant.compareAtCents,
         maxStock: variant.stock,
@@ -112,8 +128,12 @@ export function ProductPage() {
       <div className="grid gap-8 lg:grid-cols-2 lg:gap-10">
         {/* Galeria */}
         <div>
-          {product.media.length > 0 ? (
-            <ProductGallery media={product.media} name={product.name} />
+          {galleryMedia.length > 0 ? (
+            <ProductGallery
+              key={`${variant?.id ?? 'default'}-${galleryMedia[0]?.id ?? 'media'}`}
+              media={galleryMedia}
+              name={product.name}
+            />
           ) : (
             <ProductGalleryFallback />
           )}

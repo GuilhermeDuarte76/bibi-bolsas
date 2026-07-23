@@ -56,6 +56,7 @@ interface BackendProductListDto {
 
 interface BackendProductImageDto {
   id: number;
+  productVariantId?: number | null;
   publicUrl: string;
   altText?: string | null;
   sortOrder: number;
@@ -327,6 +328,7 @@ function mapBackendDetail(dto: BackendProductDetailDto): Product {
   const media: ProductMedia[] = dto.images.length
     ? dto.images.map((image) => ({
         id: String(image.id),
+        productVariantId: image.productVariantId ? String(image.productVariantId) : undefined,
         type: 'image',
         url: image.publicUrl,
         alt: image.altText || dto.name,
