@@ -3,22 +3,42 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CaretLeft,
+  CaretRight,
+  Check,
+  CopySimple,
   FloppyDisk,
   Image as ImageIcon,
+  ListChecks,
   Plus,
+  Rows,
   Star,
   Trash,
   UploadSimple,
-  WarningCircle,
 } from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
 import { cn } from '@/lib/utils';
-import { PageHeader, Panel } from '@/components/admin/AdminUI';
-import { Button } from '@/components/ui/Button';
-import { Field, Input, Select, Textarea } from '@/components/ui/Field';
-import { Pill } from '@/components/ui/Badge';
+import {
+  Banner,
+  Button,
+  Card,
+  ColorInput,
+  ErrorState,
+  Field,
+  Input,
+  MoneyInput,
+  NumberInput,
+  PageHeader,
+  SectionCard,
+  SegmentedControl,
+  Select,
+  StatusBadge,
+  Steps,
+  Textarea,
+  toast,
+  type StepItem,
+  type Tone,
+} from '@/components/admin/ui';
 import { Skeleton } from '@/components/ui/Skeleton';
-import { toast } from '@/components/ui/Toast';
 import type {
   AdminCatalogCategory,
   AdminProduct,
@@ -65,6 +85,24 @@ const STATUS_OPTIONS = [
   { value: 'Published', label: 'Publicado' },
 ];
 
+const FORM_MODE_KEY = 'admin:product-form-mode';
+
+const STEPS: StepItem[] = [
+  { key: 'info', label: 'Informações', description: 'Nome, descrição e categorias' },
+  { key: 'variants', label: 'Variações', description: 'SKUs, preços e estoque' },
+  { key: 'images', label: 'Imagens', description: 'Fotos por variação' },
+  { key: 'publish', label: 'Publicação', description: 'Status e SEO' },
+];
+
+/** Descobre em qual etapa está o campo com erro de validação. */
+function stepForError(message: string): number {
+  const m = message.toLowerCase();
+  if (m.includes('sku') || m.includes('variaç') || m.includes('preço') || m.includes('promocional') ||
+    m.includes('estoque') || m.includes('reserva') || m.includes('peso') || m.includes('dimens')) return 1;
+  if (m.includes('imagem') || m.includes('url') || m.includes('storage')) return 2;
+  return 0;
+}
+
 const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 const IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
 const IMAGE_SCOPE_GENERAL = 'general';
@@ -98,7 +136,7 @@ function slugify(value: string) {
   return value
     .toLowerCase()
     .normalize('NFD')
-    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[̀-ͯ]/g, '')
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '');
 }
@@ -110,21 +148,6 @@ function storageKeyFromUrl(value: string) {
   } catch {
     return value.trim();
   }
-}
-
-function centsToInput(value?: number) {
-  return value != null ? (value / 100).toFixed(2) : '';
-}
-
-function inputToCents(value: string) {
-  const parsed = Number(String(value).replace(',', '.'));
-  if (!Number.isFinite(parsed)) return 0;
-  return Math.round(parsed * 100);
-}
-
-function inputToNumber(value: string, fallback = 0) {
-  const parsed = Number(String(value).replace(',', '.'));
-  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
 function normalizeSku(value?: string) {
@@ -389,8 +412,8 @@ function validateForm(form: ProductFormState, variants: VariantForm[], images: I
     if (!image.publicUrl.trim() && !image.storageKey.trim()) continue;
     if (image.variantLocalId && !variantLocalIds.has(image.variantLocalId)) return 'Uma imagem está vinculada a um SKU removido.';
     if (!image.variantLocalId && image.productVariantId && !variantIds.has(image.productVariantId)) return 'Uma imagem está vinculada a um SKU removido.';
-    if (!assertValidUrl(image.publicUrl.trim())) return 'Informe uma URL pública válida para cada imagem.';
-    if (!image.storageKey.trim()) return 'Informe a chave de storage de cada imagem.';
+    if (!assertValidUrl(image.publicUrl.trim())) return 'Há uma imagem inválida. Remova-a e reenvie a foto.';
+    if (!image.storageKey.trim()) return 'Há uma imagem inválida. Remova-a e reenvie a foto.';
   }
 
   return null;
@@ -462,6 +485,55 @@ function prepareImageDrafts(
   });
 }
 
+/** Interruptor estilizado para flags booleanas. */
+function SwitchRow({
+  checked,
+  onChange,
+  label,
+  description,
+}: {
+  checked: boolean;
+  onChange: (value: boolean) => void;
+  label: string;
+  description?: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={cn(
+        'tactile flex items-center justify-between gap-3 rounded-[var(--radius-md)] border px-3.5 py-2.5 text-left transition-colors',
+        checked ? 'border-terracotta/40 bg-terracotta/[0.06]' : 'border-border hover:border-terracotta/40',
+      )}
+    >
+      <span className="min-w-0">
+        <span className="block text-sm font-medium text-graphite">{label}</span>
+        {description && <span className="block text-xs text-graphite-soft">{description}</span>}
+      </span>
+      <span className={cn('relative h-5 w-9 shrink-0 rounded-full transition-colors', checked ? 'bg-terracotta' : 'bg-sand/70')}>
+        <span
+          className={cn(
+            'absolute top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform',
+            checked ? 'translate-x-[18px]' : 'translate-x-0.5',
+          )}
+        />
+      </span>
+    </button>
+  );
+}
+
+/** Sub-título de grupo de campos dentro de uma variação. */
+function FieldGroup({ title, children, className }: { title: string; children: React.ReactNode; className?: string }) {
+  return (
+    <div className={className}>
+      <p className="mb-2 text-[0.68rem] font-semibold uppercase tracking-wider text-graphite-soft">{title}</p>
+      {children}
+    </div>
+  );
+}
+
 export function AdminProductForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -474,7 +546,21 @@ export function AdminProductForm() {
   const [images, setImages] = useState<ImageForm[]>([]);
   const [activeImageScope, setActiveImageScope] = useState(IMAGE_SCOPE_GENERAL);
   const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const [formError, setFormError] = useState<string | null>(null);
+  const [viewMode, setViewMode] = useState<'steps' | 'full'>(
+    () => (localStorage.getItem(FORM_MODE_KEY) === 'full' ? 'full' : 'steps'),
+  );
+  const [currentStep, setCurrentStep] = useState(0);
   const dragCounterRef = useRef(0);
+
+  const changeViewMode = (mode: 'steps' | 'full') => {
+    setViewMode(mode);
+    localStorage.setItem(FORM_MODE_KEY, mode);
+  };
+  const goToStep = (index: number) => {
+    setCurrentStep(Math.max(0, Math.min(STEPS.length - 1, index)));
+    if (typeof window !== 'undefined') window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
 
   const productQuery = useQuery({
     queryKey: queryKeys.admin.product(id ?? ''),
@@ -607,17 +693,25 @@ export function AdminProductForm() {
 
       return savedProduct;
     },
+    onMutate: () => setFormError(null),
     onSuccess: async (savedProduct) => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.admin.products }),
         queryClient.invalidateQueries({ queryKey: queryKeys.admin.product(savedProduct.id) }),
         queryClient.invalidateQueries({ queryKey: ['admin', 'inventory'] }),
       ]);
-      toast.success(isNew ? 'Produto criado com sucesso.' : 'Produto atualizado com sucesso.');
+      toast.success(
+        isNew
+          ? { title: 'Produto criado', description: `“${savedProduct.name}” foi adicionado ao catálogo.` }
+          : { title: 'Produto atualizado', description: `As alterações de “${savedProduct.name}” foram salvas.` },
+      );
       navigate('/admin/produtos');
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : 'Nao foi possivel salvar o produto.');
+      const message = error instanceof Error ? error.message : 'Não foi possível salvar o produto.';
+      setFormError(message);
+      setCurrentStep(stepForError(message));
+      toast.error({ title: 'Não foi possível salvar', description: message });
     },
   });
 
@@ -648,10 +742,13 @@ export function AdminProductForm() {
         ];
       });
 
-      toast.success('Imagem enviada com sucesso.');
+      toast.success({ title: 'Imagem enviada', description: 'A foto foi adicionada ao grupo selecionado.' });
     },
     onError: (error) => {
-      toast.error(error instanceof Error ? error.message : 'Nao foi possivel enviar a imagem.');
+      toast.error({
+        title: 'Falha no envio',
+        description: error instanceof Error ? error.message : 'Não foi possível enviar a imagem.',
+      });
     },
   });
 
@@ -676,6 +773,26 @@ export function AdminProductForm() {
       if (variant.localId !== localId) return variant;
       return { ...variant, ...patch };
     }));
+  };
+
+  const duplicateVariant = (localId: string) => {
+    setVariants((current) => {
+      const index = current.findIndex((variant) => variant.localId === localId);
+      if (index === -1) return current;
+      const source = current[index];
+      const copy: VariantForm = {
+        ...source,
+        localId: newLocalId('variant'),
+        existing: false,
+        id: undefined,
+        isDefault: false,
+        sku: '',
+      };
+      const next = [...current];
+      next.splice(index + 1, 0, copy);
+      return next;
+    });
+    toast.success({ title: 'Variação duplicada', description: 'Defina um SKU único para a cópia.' });
   };
 
   const setDefaultVariant = (localId: string) => {
@@ -776,655 +893,757 @@ export function AdminProductForm() {
   };
 
   const isLoading = (!isNew && productQuery.isLoading) || categoriesQuery.isLoading;
-  if (isLoading) return <Skeleton className="h-96 w-full rounded-[var(--radius-lg)]" />;
+
+  if (isLoading) {
+    return (
+      <div className="space-y-6">
+        <Skeleton className="h-8 w-64" />
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <Skeleton className="h-96 w-full rounded-[var(--radius-lg)]" />
+          <Skeleton className="h-96 w-full rounded-[var(--radius-lg)]" />
+        </div>
+      </div>
+    );
+  }
 
   if (!isNew && productQuery.isError) {
     return (
-      <Panel>
-        <div className="flex items-center gap-3 text-danger">
-          <WarningCircle size={22} />
-          <p className="font-medium">Produto não encontrado.</p>
+      <Card>
+        <ErrorState
+          title="Produto não encontrado"
+          description="Não foi possível carregar este produto. Ele pode ter sido removido."
+        />
+        <div className="flex justify-center pb-6">
+          <Button variant="outline" onClick={() => navigate('/admin/produtos')}>
+            <CaretLeft size={16} /> Voltar aos produtos
+          </Button>
         </div>
-        <Button className="mt-4" variant="outline" onClick={() => navigate('/admin/produtos')}>
-          <CaretLeft size={16} /> Voltar
-        </Button>
-      </Panel>
+      </Card>
     );
   }
+
+  const statusTone: Tone = form.status === 'Published' ? 'success' : form.status === 'Archived' ? 'neutral' : 'warning';
+  const statusLabel = form.status === 'Published' ? 'Publicado' : form.status === 'Archived' ? 'Arquivado' : 'Rascunho';
+  const isLastStep = currentStep === STEPS.length - 1;
+
+  // ---- Seções (reutilizadas nos modos etapas e completo) ----
+
+  const basicoCard = (
+    <SectionCard eyebrow="Produto" title="Informações básicas" description="Nome, descrição e atributos gerais.">
+      <div className="grid gap-4">
+        <Field label="Nome" required>
+          {(fieldId) => (
+            <Input
+              id={fieldId}
+              value={form.name}
+              onChange={(event) => updateForm('name', event.target.value)}
+              onBlur={() => {
+                if (!form.slug?.trim()) updateForm('slug', slugify(form.name));
+              }}
+              placeholder="Ex.: Bolsa Tote Manhattan"
+            />
+          )}
+        </Field>
+
+        <div className="grid gap-4 md:grid-cols-2">
+          <Field label="Slug" hint="Gerado a partir do nome se ficar em branco.">
+            {(fieldId) => (
+              <Input
+                id={fieldId}
+                value={form.slug ?? ''}
+                onChange={(event) => updateForm('slug', slugify(event.target.value))}
+                placeholder="bolsa-tote-manhattan"
+              />
+            )}
+          </Field>
+          <Field label="Marca">
+            {(fieldId) => (
+              <Input id={fieldId} value={form.brand ?? ''} onChange={(event) => updateForm('brand', event.target.value)} />
+            )}
+          </Field>
+        </div>
+
+        <Field label="Descrição curta">
+          {(fieldId) => (
+            <Input
+              id={fieldId}
+              value={form.shortDescription ?? ''}
+              onChange={(event) => updateForm('shortDescription', event.target.value)}
+              placeholder="Frase de destaque exibida nas listagens."
+            />
+          )}
+        </Field>
+
+        <Field label="Descrição completa">
+          {(fieldId) => (
+            <Textarea
+              id={fieldId}
+              value={form.description ?? ''}
+              onChange={(event) => updateForm('description', event.target.value)}
+            />
+          )}
+        </Field>
+
+        <div className="grid gap-4 md:grid-cols-3">
+          <Field label="Coleção">
+            {(fieldId) => (
+              <Input id={fieldId} value={form.collection ?? ''} onChange={(event) => updateForm('collection', event.target.value)} />
+            )}
+          </Field>
+          <Field label="Material principal">
+            {(fieldId) => (
+              <Input id={fieldId} value={form.mainMaterial ?? ''} onChange={(event) => updateForm('mainMaterial', event.target.value)} />
+            )}
+          </Field>
+          <Field label="Cor principal">
+            {(fieldId) => (
+              <Input id={fieldId} value={form.mainColor ?? ''} onChange={(event) => updateForm('mainColor', event.target.value)} placeholder="Ex.: Caramelo" />
+            )}
+          </Field>
+        </div>
+      </div>
+    </SectionCard>
+  );
+
+  const categoriasCard = (
+    <SectionCard eyebrow="Organização" title="Categorias" description="Selecione ao menos uma categoria.">
+      {activeCategories.length === 0 ? (
+        <p className="text-sm text-graphite-soft">Nenhuma categoria ativa cadastrada.</p>
+      ) : (
+        <div className="grid gap-2 sm:grid-cols-2">
+          {activeCategories.map((category) => {
+            const selected = form.categoryIds.includes(category.id);
+            return (
+              <button
+                key={category.id}
+                type="button"
+                aria-pressed={selected}
+                onClick={() => toggleCategory(category)}
+                className={cn(
+                  'tactile flex items-center gap-2.5 rounded-[var(--radius-md)] border px-3 py-2.5 text-left text-sm transition-colors',
+                  selected ? 'border-terracotta bg-terracotta/[0.08] text-graphite' : 'border-border text-graphite hover:border-terracotta/50',
+                )}
+              >
+                <span
+                  className={cn(
+                    'grid h-4 w-4 shrink-0 place-items-center rounded border transition-colors',
+                    selected ? 'border-terracotta bg-terracotta text-white' : 'border-store-gray/50',
+                  )}
+                >
+                  {selected && <Check size={11} weight="bold" />}
+                </span>
+                <span className="truncate">{category.name}</span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+    </SectionCard>
+  );
+
+  const variacoesCard = (
+    <SectionCard
+      eyebrow="Catálogo"
+      title="Variações e SKUs"
+      description="Cada SKU tem preço, estoque e logística próprios."
+      action={
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={() => setVariants((current) => [...current, emptyVariant(current.length === 0)])}
+        >
+          <Plus size={15} /> Adicionar SKU
+        </Button>
+      }
+      bodyClassName="flex flex-col gap-4"
+    >
+      {variants.map((variant, index) => (
+        <div key={variant.localId} className="rounded-[var(--radius-md)] border border-border bg-cream-lighter/40 p-4">
+          <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+            <div className="flex items-center gap-2">
+              <p className="font-semibold text-graphite">SKU {index + 1}</p>
+              {variant.existing && <StatusBadge tone="neutral" size="sm">Existente</StatusBadge>}
+              {variant.isDefault && (
+                <StatusBadge tone="info" size="sm">
+                  <Star size={11} weight="fill" /> Padrão
+                </StatusBadge>
+              )}
+              {!variant.isActive && <StatusBadge tone="warning" size="sm">Inativo</StatusBadge>}
+            </div>
+            <div className="flex flex-wrap gap-1">
+              <Button type="button" size="sm" variant="ghost" onClick={() => duplicateVariant(variant.localId)}>
+                <CopySimple size={15} /> Duplicar
+              </Button>
+              {!variant.isDefault && (
+                <Button type="button" size="sm" variant="ghost" onClick={() => setDefaultVariant(variant.localId)}>
+                  Tornar padrão
+                </Button>
+              )}
+              {variants.length > 1 && (
+                <Button type="button" size="sm" variant="ghost" className="text-danger hover:bg-danger-soft/60" onClick={() => removeVariant(variant.localId)}>
+                  <Trash size={15} /> {variant.existing ? 'Inativar' : 'Remover'}
+                </Button>
+              )}
+            </div>
+          </div>
+
+          <div className="flex flex-col gap-4">
+            <FieldGroup title="Identificação">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="SKU" required>
+                  {(fieldId) => (
+                    <Input
+                      id={fieldId}
+                      value={variant.sku}
+                      disabled={variant.existing}
+                      onChange={(event) => updateVariant(variant.localId, { sku: event.target.value.toUpperCase() })}
+                      placeholder="BB-BOLSA-00"
+                    />
+                  )}
+                </Field>
+                <Field label="Nome da variação" required>
+                  {(fieldId) => (
+                    <Input
+                      id={fieldId}
+                      value={variant.name}
+                      onChange={(event) => updateVariant(variant.localId, { name: event.target.value })}
+                      placeholder="Ex.: Caramelo / Único"
+                    />
+                  )}
+                </Field>
+                <Field label="Código de barras" hint="EAN/GTIN (opcional)">
+                  {(fieldId) => (
+                    <Input
+                      id={fieldId}
+                      inputMode="numeric"
+                      value={variant.barcode ?? ''}
+                      onChange={(event) => updateVariant(variant.localId, { barcode: event.target.value })}
+                      placeholder="7891234567890"
+                    />
+                  )}
+                </Field>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title="Atributos">
+              <div className="grid gap-4 md:grid-cols-4">
+                <Field label="Cor">
+                  {(fieldId) => (
+                    <Input id={fieldId} value={variant.color ?? ''} onChange={(event) => updateVariant(variant.localId, { color: event.target.value })} placeholder="Caramelo" />
+                  )}
+                </Field>
+                <Field label="Cor (hex)">
+                  {(fieldId) => (
+                    <ColorInput
+                      id={fieldId}
+                      value={variant.colorHex ?? ''}
+                      onChange={(value) => updateVariant(variant.localId, { colorHex: value })}
+                    />
+                  )}
+                </Field>
+                <Field label="Tamanho">
+                  {(fieldId) => (
+                    <Input id={fieldId} value={variant.size ?? ''} onChange={(event) => updateVariant(variant.localId, { size: event.target.value })} placeholder="Único" />
+                  )}
+                </Field>
+                <Field label="Acabamento">
+                  {(fieldId) => (
+                    <Input id={fieldId} value={variant.finish ?? ''} onChange={(event) => updateVariant(variant.localId, { finish: event.target.value })} placeholder="Fosco" />
+                  )}
+                </Field>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title="Preços">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="Preço" required>
+                  {(fieldId) => (
+                    <MoneyInput
+                      id={fieldId}
+                      valueCents={variant.priceCents}
+                      onChangeCents={(cents) => updateVariant(variant.localId, { priceCents: cents ?? 0 })}
+                    />
+                  )}
+                </Field>
+                <Field label="Promocional" hint="Menor que o preço normal">
+                  {(fieldId) => (
+                    <MoneyInput
+                      id={fieldId}
+                      allowEmpty
+                      valueCents={variant.promotionalPriceCents}
+                      onChangeCents={(cents) => updateVariant(variant.localId, { promotionalPriceCents: cents })}
+                    />
+                  )}
+                </Field>
+                <Field label="Custo">
+                  {(fieldId) => (
+                    <MoneyInput
+                      id={fieldId}
+                      allowEmpty
+                      valueCents={variant.costPriceCents}
+                      onChangeCents={(cents) => updateVariant(variant.localId, { costPriceCents: cents })}
+                    />
+                  )}
+                </Field>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title="Estoque">
+              <div className="grid gap-4 md:grid-cols-3">
+                <Field label="Quantidade">
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      stepper
+                      min={0}
+                      disabled={variant.existing}
+                      value={variant.stockQuantity}
+                      onChange={(n) => updateVariant(variant.localId, { stockQuantity: n ?? 0 })}
+                    />
+                  )}
+                </Field>
+                <Field label="Reservado">
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      stepper
+                      min={0}
+                      disabled={variant.existing}
+                      value={variant.reservedQuantity}
+                      onChange={(n) => updateVariant(variant.localId, { reservedQuantity: n ?? 0 })}
+                    />
+                  )}
+                </Field>
+                <Field label="Estoque mínimo">
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      stepper
+                      min={0}
+                      value={variant.minimumStock}
+                      onChange={(n) => updateVariant(variant.localId, { minimumStock: n ?? 0 })}
+                    />
+                  )}
+                </Field>
+              </div>
+            </FieldGroup>
+
+            <FieldGroup title="Logística (peso e dimensões)">
+              <div className="grid gap-4 md:grid-cols-4">
+                <Field label="Peso" required>
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      allowDecimal
+                      min={0.001}
+                      suffix="kg"
+                      value={variant.weightKg}
+                      onChange={(n) => updateVariant(variant.localId, { weightKg: n ?? 0.001 })}
+                    />
+                  )}
+                </Field>
+                <Field label="Altura" required>
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      allowDecimal
+                      min={0.01}
+                      suffix="cm"
+                      value={variant.heightCm}
+                      onChange={(n) => updateVariant(variant.localId, { heightCm: n ?? 0.01 })}
+                    />
+                  )}
+                </Field>
+                <Field label="Largura" required>
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      allowDecimal
+                      min={0.01}
+                      suffix="cm"
+                      value={variant.widthCm}
+                      onChange={(n) => updateVariant(variant.localId, { widthCm: n ?? 0.01 })}
+                    />
+                  )}
+                </Field>
+                <Field label="Profundidade" required>
+                  {(fieldId) => (
+                    <NumberInput
+                      id={fieldId}
+                      allowDecimal
+                      min={0.01}
+                      suffix="cm"
+                      value={variant.depthCm}
+                      onChange={(n) => updateVariant(variant.localId, { depthCm: n ?? 0.01 })}
+                    />
+                  )}
+                </Field>
+              </div>
+            </FieldGroup>
+
+            <SwitchRow
+              checked={variant.isActive}
+              onChange={(value) => updateVariant(variant.localId, { isActive: value })}
+              label="Variação ativa"
+              description="SKUs inativos não aparecem na loja nem contam no estoque."
+            />
+          </div>
+        </div>
+      ))}
+    </SectionCard>
+  );
+
+  const imagensCard = (
+    <SectionCard
+      eyebrow="Mídia"
+      title="Imagens"
+      description="Organize as fotos por produto geral ou por variação."
+      action={
+        <Button
+          type="button"
+          size="sm"
+          variant="secondary"
+          loading={imageUploadMutation.isPending}
+          onClick={() => imageUploadInputRef.current?.click()}
+        >
+          <UploadSimple size={15} /> Enviar fotos
+        </Button>
+      }
+      bodyClassName="flex flex-col gap-4"
+    >
+      <input
+        ref={imageUploadInputRef}
+        type="file"
+        accept={IMAGE_UPLOAD_ACCEPT}
+        multiple
+        className="hidden"
+        onChange={handleImageUploadChange}
+      />
+
+      <div className="flex gap-2 overflow-x-auto pb-1 no-scrollbar">
+        {imageScopeOptions.map((option) => {
+          const count = imageScopeCounts.get(option.key) ?? 0;
+          const selected = activeImageScope === option.key;
+
+          return (
+            <button
+              key={option.key}
+              type="button"
+              onClick={() => setActiveImageScope(option.key)}
+              className={cn(
+                'tactile min-w-[132px] rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors',
+                selected ? 'border-terracotta bg-terracotta/[0.08]' : 'border-border bg-surface hover:border-terracotta/50',
+              )}
+            >
+              <span className="flex items-center gap-2">
+                {option.colorHex && (
+                  <span
+                    className="h-3 w-3 shrink-0 rounded-full border border-graphite/10"
+                    style={{ backgroundColor: option.colorHex }}
+                    aria-hidden
+                  />
+                )}
+                <span className="truncate text-xs font-semibold text-graphite">{option.shortLabel}</span>
+                <span
+                  className={cn(
+                    'ml-auto rounded-full px-1.5 py-0.5 text-[10px] font-semibold',
+                    selected ? 'bg-terracotta/15 text-terracotta' : 'bg-cream text-graphite-soft',
+                  )}
+                >
+                  {count}
+                </span>
+              </span>
+              {option.meta && <span className="mt-0.5 block truncate text-[11px] text-graphite-soft">{option.meta}</span>}
+            </button>
+          );
+        })}
+      </div>
+
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => imageUploadInputRef.current?.click()}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter' || event.key === ' ') imageUploadInputRef.current?.click();
+        }}
+        onDragEnter={handleImageDragEnter}
+        onDragOver={handleImageDragOver}
+        onDragLeave={handleImageDragLeave}
+        onDrop={handleImageDrop}
+        className={cn(
+          'tactile flex cursor-pointer flex-col items-center justify-center gap-1.5 rounded-[var(--radius-md)] border-2 border-dashed p-6 text-center transition-colors',
+          isDraggingImages ? 'border-terracotta bg-terracotta/5' : 'border-border hover:border-terracotta/50 hover:bg-cream-lighter',
+        )}
+      >
+        <span className="mb-1 flex h-11 w-11 items-center justify-center rounded-full bg-terracotta/10 text-terracotta">
+          <UploadSimple size={22} />
+        </span>
+        <p className="text-sm font-medium text-graphite">
+          Arraste ou clique para enviar em <span className="text-terracotta">{activeImageScopeOption?.shortLabel ?? 'Geral'}</span>
+        </p>
+        <p className="text-xs text-graphite-soft">JPG, PNG, WEBP ou GIF · até 10 MB · várias de uma vez</p>
+      </div>
+
+      {visibleImages.length > 0 && (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+          {visibleImages.map((image) => {
+            const scopeKey = imageScopeKey(image, variants);
+            const scopeLabel = imageScopeOptionByKey.get(scopeKey)?.label ?? 'Produto geral';
+
+            return (
+              <div key={image.localId} className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
+                <div className="group relative aspect-square overflow-hidden rounded-[var(--radius-sm)] bg-cream-light">
+                  {image.publicUrl ? (
+                    <img src={image.publicUrl} alt={image.altText ?? ''} className="h-full w-full object-cover" />
+                  ) : (
+                    <div className="grid h-full w-full place-items-center text-store-gray">
+                      <ImageIcon size={24} />
+                    </div>
+                  )}
+
+                  <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-12px)] truncate rounded-full bg-surface/90 px-2 py-1 text-[11px] font-medium text-graphite shadow-sm">
+                    {scopeLabel}
+                  </span>
+
+                  {image.isMain && (
+                    <span className="absolute left-1.5 top-1.5">
+                      <StatusBadge tone="brand" size="sm">
+                        <Star size={11} weight="fill" /> Principal
+                      </StatusBadge>
+                    </span>
+                  )}
+
+                  <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    {!image.isMain && (
+                      <button
+                        type="button"
+                        title="Tornar principal"
+                        onClick={() => setMainImage(image.localId)}
+                        className="tactile grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-graphite shadow-sm hover:text-terracotta"
+                      >
+                        <Star size={14} />
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      title="Remover imagem"
+                      onClick={() => setImages((current) => current.filter((item) => item.localId !== image.localId))}
+                      className="tactile grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-danger shadow-sm hover:bg-danger hover:text-white"
+                    >
+                      <Trash size={14} />
+                    </button>
+                  </div>
+                </div>
+
+                <div className="mt-2 grid gap-2">
+                  <Field label="Imagem de">
+                    {(fieldId) => (
+                      <Select
+                        id={fieldId}
+                        value={scopeKey}
+                        onChange={(event) => updateImageScope(image.localId, event.target.value)}
+                        className="h-9 px-3 text-xs"
+                      >
+                        {imageScopeOptions.map((option) => (
+                          <option key={option.key} value={option.key}>
+                            {option.isPersisted ? option.label : `${option.label} (novo)`}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </Field>
+                  <Field label="Texto alternativo">
+                    {(fieldId) => (
+                      <Input
+                        id={fieldId}
+                        value={image.altText ?? ''}
+                        onChange={(event) => updateImage(image.localId, { altText: event.target.value })}
+                        className="h-9 px-3 text-xs"
+                      />
+                    )}
+                  </Field>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+      {images.length === 0 && (
+        <p className="rounded-[var(--radius-md)] border border-dashed border-border px-3 py-4 text-center text-sm text-graphite-soft">
+          Nenhuma imagem cadastrada ainda.
+        </p>
+      )}
+      {images.length > 0 && visibleImages.length === 0 && (
+        <p className="rounded-[var(--radius-md)] border border-dashed border-border px-3 py-4 text-center text-sm text-graphite-soft">
+          Nenhuma imagem neste grupo.
+        </p>
+      )}
+    </SectionCard>
+  );
+
+  const publicacaoCard = (
+    <SectionCard eyebrow="Publicação" title="Status e visibilidade">
+      <div className="grid gap-4">
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Status">
+            {(fieldId) => (
+              <Select
+                id={fieldId}
+                value={form.status}
+                disabled={form.status === 'Archived'}
+                onChange={(event) => updateForm('status', event.target.value)}
+              >
+                {statusOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </Select>
+            )}
+          </Field>
+          <Field label="Ordem de exibição">
+            {(fieldId) => (
+              <NumberInput
+                id={fieldId}
+                stepper
+                min={0}
+                value={form.displayOrder}
+                onChange={(n) => updateForm('displayOrder', n ?? 0)}
+              />
+            )}
+          </Field>
+        </div>
+        <div className="grid gap-2">
+          <SwitchRow checked={form.isFeatured} onChange={(v) => updateForm('isFeatured', v)} label="Destaque" description="Aparece nas vitrines de destaque." />
+          <SwitchRow checked={form.isNewArrival} onChange={(v) => updateForm('isNewArrival', v)} label="Novidade" description="Marca o produto como lançamento." />
+          <SwitchRow checked={form.isPromotion} onChange={(v) => updateForm('isPromotion', v)} label="Promoção" description="Sinaliza que está em oferta." />
+        </div>
+      </div>
+    </SectionCard>
+  );
+
+  const seoCard = (
+    <SectionCard eyebrow="Busca" title="SEO">
+      <div className="grid gap-4">
+        <Field label="Título SEO" hint={`${(form.seoTitle ?? '').length}/160`}>
+          {(fieldId) => (
+            <Input id={fieldId} maxLength={160} value={form.seoTitle ?? ''} onChange={(event) => updateForm('seoTitle', event.target.value)} />
+          )}
+        </Field>
+        <Field label="Descrição SEO" hint={`${(form.seoDescription ?? '').length}/300`}>
+          {(fieldId) => (
+            <Textarea id={fieldId} maxLength={300} value={form.seoDescription ?? ''} onChange={(event) => updateForm('seoDescription', event.target.value)} />
+          )}
+        </Field>
+        <Field label="Palavras-chave" hint="Separe por vírgulas.">
+          {(fieldId) => (
+            <Input id={fieldId} value={form.searchKeywords ?? ''} onChange={(event) => updateForm('searchKeywords', event.target.value)} placeholder="bolsa, couro, tote" />
+          )}
+        </Field>
+      </div>
+    </SectionCard>
+  );
+
+  const stepBodies = [
+    <div key="s0" className="mx-auto flex w-full max-w-3xl flex-col gap-6">{basicoCard}{categoriasCard}</div>,
+    <div key="s1" className="mx-auto w-full max-w-4xl">{variacoesCard}</div>,
+    <div key="s2" className="mx-auto w-full max-w-4xl">{imagensCard}</div>,
+    <div key="s3" className="mx-auto flex w-full max-w-3xl flex-col gap-6">{publicacaoCard}{seoCard}</div>,
+  ];
 
   return (
     <form
       onSubmit={(event) => {
         event.preventDefault();
+        if (viewMode === 'steps' && !isLastStep) {
+          goToStep(currentStep + 1);
+          return;
+        }
         saveMutation.mutate();
       }}
     >
-      <button
-        type="button"
-        onClick={() => navigate('/admin/produtos')}
-        className="mb-4 flex items-center gap-1 text-sm text-graphite-soft hover:text-graphite"
-      >
-        <CaretLeft size={16} /> Voltar
-      </button>
-
       <PageHeader
+        breadcrumbs={[
+          { label: 'Catálogo' },
+          { label: 'Produtos', to: '/admin/produtos' },
+          { label: isNew ? 'Novo produto' : 'Editar' },
+        ]}
+        eyebrow={isNew ? 'Novo cadastro' : 'Edição'}
         title={isNew ? 'Novo produto' : product?.name ?? 'Produto'}
-        subtitle={isNew ? 'Cadastro operacional do catálogo' : 'Edição operacional do catálogo'}
-        action={(
-          <div className="flex gap-2">
-            <Button type="button" variant="ghost" onClick={() => navigate('/admin/produtos')}>Cancelar</Button>
-            <Button type="submit" loading={saveMutation.isPending} disabled={imageUploadMutation.isPending}>
-              <FloppyDisk size={17} /> Salvar
-            </Button>
+        subtitle={isNew ? 'Cadastre um produto no catálogo com variações, imagens e SEO.' : 'Atualize as informações, variações e imagens do produto.'}
+        action={
+          <div className="flex flex-wrap items-center gap-3">
+            <SegmentedControl
+              value={viewMode}
+              onChange={changeViewMode}
+              options={[
+                { value: 'steps', label: <><ListChecks size={15} /> Etapas</> },
+                { value: 'full', label: <><Rows size={15} /> Completo</> },
+              ]}
+            />
+            <StatusBadge tone={statusTone} dot>{statusLabel}</StatusBadge>
           </div>
-        )}
+        }
       />
 
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-[1.4fr_1fr]">
-        <div className="flex min-w-0 flex-col gap-4 sm:gap-6">
-          <Panel title="Informações básicas">
-            <div className="grid gap-4">
-              <Field label="Nome" required>
-                {(fieldId) => (
-                  <Input
-                    id={fieldId}
-                    value={form.name}
-                    onChange={(event) => updateForm('name', event.target.value)}
-                    onBlur={() => {
-                      if (!form.slug?.trim()) updateForm('slug', slugify(form.name));
-                    }}
-                    placeholder="Ex.: Bolsa Tote Manhattan"
-                  />
-                )}
-              </Field>
+      {formError && (
+        <Banner tone="danger" title="Revise o formulário" className="mb-6" onDismiss={() => setFormError(null)}>
+          {formError}
+        </Banner>
+      )}
 
-              <div className="grid gap-4 md:grid-cols-2">
-                <Field label="Slug">
-                  {(fieldId) => (
-                    <Input
-                      id={fieldId}
-                      value={form.slug ?? ''}
-                      onChange={(event) => updateForm('slug', slugify(event.target.value))}
-                      placeholder="bolsa-tote-manhattan"
-                    />
-                  )}
-                </Field>
-                <Field label="Marca">
-                  {(fieldId) => (
-                    <Input
-                      id={fieldId}
-                      value={form.brand ?? ''}
-                      onChange={(event) => updateForm('brand', event.target.value)}
-                    />
-                  )}
-                </Field>
-              </div>
-
-              <Field label="Descrição curta">
-                {(fieldId) => (
-                  <Input
-                    id={fieldId}
-                    value={form.shortDescription ?? ''}
-                    onChange={(event) => updateForm('shortDescription', event.target.value)}
-                  />
-                )}
-              </Field>
-
-              <Field label="Descrição completa">
-                {(fieldId) => (
-                  <Textarea
-                    id={fieldId}
-                    value={form.description ?? ''}
-                    onChange={(event) => updateForm('description', event.target.value)}
-                  />
-                )}
-              </Field>
-
-              <div className="grid gap-4 md:grid-cols-3">
-                <Field label="Coleção">
-                  {(fieldId) => (
-                    <Input
-                      id={fieldId}
-                      value={form.collection ?? ''}
-                      onChange={(event) => updateForm('collection', event.target.value)}
-                    />
-                  )}
-                </Field>
-                <Field label="Material principal">
-                  {(fieldId) => (
-                    <Input
-                      id={fieldId}
-                      value={form.mainMaterial ?? ''}
-                      onChange={(event) => updateForm('mainMaterial', event.target.value)}
-                    />
-                  )}
-                </Field>
-                <Field label="Cor principal">
-                  {(fieldId) => (
-                    <Input
-                      id={fieldId}
-                      value={form.mainColor ?? ''}
-                      onChange={(event) => updateForm('mainColor', event.target.value)}
-                    />
-                  )}
-                </Field>
-              </div>
-            </div>
-          </Panel>
-
-          <Panel title="Categorias">
-            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {activeCategories.map((category) => (
-                <label key={category.id} className="flex min-h-11 items-center gap-3 rounded-[var(--radius-md)] border border-border px-3 py-2 text-sm text-graphite">
-                  <input
-                    type="checkbox"
-                    checked={form.categoryIds.includes(category.id)}
-                    onChange={() => toggleCategory(category)}
-                    className="h-4 w-4 accent-terracotta"
-                  />
-                  <span>{category.name}</span>
-                </label>
-              ))}
-              {activeCategories.length === 0 && <p className="text-sm text-graphite-soft">Nenhuma categoria ativa cadastrada.</p>}
-            </div>
-          </Panel>
-
-          <Panel
-            title="Variações e SKUs"
-            action={(
-              <Button
-                type="button"
-                size="sm"
-                variant="outline"
-                onClick={() => setVariants((current) => [...current, emptyVariant(current.length === 0)])}
-              >
-                <Plus size={15} /> Adicionar SKU
-              </Button>
-            )}
-          >
-            <div className="space-y-4">
-              {variants.map((variant, index) => (
-                <div key={variant.localId} className="rounded-[var(--radius-md)] border border-border p-4">
-                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2">
-                      <p className="font-medium text-graphite">SKU {index + 1}</p>
-                      {variant.existing && <Pill tone="neutral">Existente</Pill>}
-                      {variant.isDefault && <Pill tone="info">Padrão</Pill>}
-                    </div>
-                    <div className="flex flex-wrap gap-2">
-                      <Button type="button" size="sm" variant="ghost" onClick={() => setDefaultVariant(variant.localId)}>
-                        Tornar padrão
-                      </Button>
-                      {variants.length > 1 && (
-                        <Button type="button" size="sm" variant="danger" onClick={() => removeVariant(variant.localId)}>
-                          <Trash size={15} /> {variant.existing ? 'Inativar' : 'Remover'}
-                        </Button>
-                      )}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 md:grid-cols-3">
-                    <Field label="SKU" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.sku}
-                          disabled={variant.existing}
-                          onChange={(event) => updateVariant(variant.localId, { sku: event.target.value.toUpperCase() })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Nome da variação" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.name}
-                          onChange={(event) => updateVariant(variant.localId, { name: event.target.value })}
-                          placeholder="Ex.: Caramelo / Único"
-                        />
-                      )}
-                    </Field>
-                    <Field label="Código de barras">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.barcode ?? ''}
-                          onChange={(event) => updateVariant(variant.localId, { barcode: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-4">
-                    <Field label="Cor">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.color ?? ''}
-                          onChange={(event) => updateVariant(variant.localId, { color: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Hex">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.colorHex ?? ''}
-                          onChange={(event) => updateVariant(variant.localId, { colorHex: event.target.value })}
-                          placeholder="#a5603f"
-                        />
-                      )}
-                    </Field>
-                    <Field label="Tamanho">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.size ?? ''}
-                          onChange={(event) => updateVariant(variant.localId, { size: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Acabamento">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={variant.finish ?? ''}
-                          onChange={(event) => updateVariant(variant.localId, { finish: event.target.value })}
-                        />
-                      )}
-                    </Field>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-3">
-                    <Field label="Preço (R$)" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={centsToInput(variant.priceCents)}
-                          onChange={(event) => updateVariant(variant.localId, { priceCents: inputToCents(event.target.value) })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Promocional (R$)">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={centsToInput(variant.promotionalPriceCents)}
-                          onChange={(event) => updateVariant(variant.localId, {
-                            promotionalPriceCents: event.target.value === '' ? undefined : inputToCents(event.target.value),
-                          })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Custo (R$)">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0"
-                          step="0.01"
-                          value={centsToInput(variant.costPriceCents)}
-                          onChange={(event) => updateVariant(variant.localId, {
-                            costPriceCents: event.target.value === '' ? undefined : inputToCents(event.target.value),
-                          })}
-                        />
-                      )}
-                    </Field>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-3">
-                    <Field label="Estoque">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0"
-                          disabled={variant.existing}
-                          value={variant.stockQuantity}
-                          onChange={(event) => updateVariant(variant.localId, { stockQuantity: inputToNumber(event.target.value) })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Reservado">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0"
-                          disabled={variant.existing}
-                          value={variant.reservedQuantity}
-                          onChange={(event) => updateVariant(variant.localId, { reservedQuantity: inputToNumber(event.target.value) })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Estoque mínimo">
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0"
-                          value={variant.minimumStock}
-                          onChange={(event) => updateVariant(variant.localId, { minimumStock: inputToNumber(event.target.value) })}
-                        />
-                      )}
-                    </Field>
-                  </div>
-
-                  <div className="mt-4 grid gap-4 md:grid-cols-4">
-                    <Field label="Peso (kg)" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          value={variant.weightKg}
-                          onChange={(event) => updateVariant(variant.localId, { weightKg: inputToNumber(event.target.value, 0.001) })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Altura (cm)" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={variant.heightCm}
-                          onChange={(event) => updateVariant(variant.localId, { heightCm: inputToNumber(event.target.value, 0.01) })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Largura (cm)" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={variant.widthCm}
-                          onChange={(event) => updateVariant(variant.localId, { widthCm: inputToNumber(event.target.value, 0.01) })}
-                        />
-                      )}
-                    </Field>
-                    <Field label="Profundidade (cm)" required>
-                      {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="number"
-                          min="0.01"
-                          step="0.01"
-                          value={variant.depthCm}
-                          onChange={(event) => updateVariant(variant.localId, { depthCm: inputToNumber(event.target.value, 0.01) })}
-                        />
-                      )}
-                    </Field>
-                  </div>
-
-                  <label className="mt-4 flex items-center gap-2 text-sm text-graphite">
-                    <input
-                      type="checkbox"
-                      checked={variant.isActive}
-                      onChange={(event) => updateVariant(variant.localId, { isActive: event.target.checked })}
-                      className="h-4 w-4 accent-terracotta"
-                    />
-                    Ativo
-                  </label>
-                </div>
-              ))}
-            </div>
-          </Panel>
+      {viewMode === 'steps' ? (
+        <div className="flex flex-col gap-6">
+          <Card className="p-1.5 sm:p-2">
+            <Steps steps={STEPS} current={currentStep} onSelect={goToStep} />
+          </Card>
+          {stepBodies[currentStep]}
         </div>
+      ) : (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+          <div className="flex min-w-0 flex-col gap-6">
+            {basicoCard}
+            {variacoesCard}
+            {imagensCard}
+          </div>
+          <div className="flex min-w-0 flex-col gap-6">
+            {publicacaoCard}
+            {categoriasCard}
+            {seoCard}
+          </div>
+        </div>
+      )}
 
-        <div className="flex min-w-0 flex-col gap-4 sm:gap-6">
-          <Panel title="Publicação">
-            <div className="grid gap-4">
-              <Field label="Status">
-                {(fieldId) => (
-                  <Select
-                    id={fieldId}
-                    value={form.status}
-                    disabled={form.status === 'Archived'}
-                    onChange={(event) => updateForm('status', event.target.value)}
-                  >
-                    {statusOptions.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
-                  </Select>
-                )}
-              </Field>
-              <Field label="Ordem">
-                {(fieldId) => (
-                  <Input
-                    id={fieldId}
-                    type="number"
-                    value={form.displayOrder}
-                    onChange={(event) => updateForm('displayOrder', inputToNumber(event.target.value))}
-                  />
-                )}
-              </Field>
-              <label className="flex items-center gap-2 text-sm text-graphite">
-                <input type="checkbox" checked={form.isFeatured} onChange={(event) => updateForm('isFeatured', event.target.checked)} className="h-4 w-4 accent-terracotta" />
-                Destaque
-              </label>
-              <label className="flex items-center gap-2 text-sm text-graphite">
-                <input type="checkbox" checked={form.isNewArrival} onChange={(event) => updateForm('isNewArrival', event.target.checked)} className="h-4 w-4 accent-terracotta" />
-                Novidade
-              </label>
-              <label className="flex items-center gap-2 text-sm text-graphite">
-                <input type="checkbox" checked={form.isPromotion} onChange={(event) => updateForm('isPromotion', event.target.checked)} className="h-4 w-4 accent-terracotta" />
-                Promoção
-              </label>
-            </div>
-          </Panel>
-
-          <Panel
-            title="Imagens"
-            action={(
-              <Button
-                type="button"
-                size="sm"
-                variant="secondary"
-                loading={imageUploadMutation.isPending}
-                onClick={() => imageUploadInputRef.current?.click()}
-              >
-                <UploadSimple size={15} /> Enviar fotos
+      {/* Barra de ações fixa (sticky, independente da sidebar) */}
+      <div className="sticky bottom-0 z-30 mt-6 -mx-4 border-t border-border bg-surface/95 px-4 py-3 backdrop-blur lg:-mx-8 lg:px-8">
+        <div className="flex items-center justify-between gap-3">
+          <p className="hidden text-sm text-graphite-soft sm:block">
+            {viewMode === 'steps'
+              ? `Passo ${currentStep + 1} de ${STEPS.length} · ${STEPS[currentStep].label}`
+              : isNew
+                ? 'Preencha os campos obrigatórios e salve.'
+                : 'Alterações são aplicadas ao salvar.'}
+          </p>
+          <div className="flex flex-1 items-center justify-end gap-2">
+            <Button type="button" variant="ghost" onClick={() => navigate('/admin/produtos')}>
+              Cancelar
+            </Button>
+            {viewMode === 'steps' && currentStep > 0 && (
+              <Button type="button" variant="outline" onClick={() => goToStep(currentStep - 1)}>
+                <CaretLeft size={16} /> Voltar
               </Button>
             )}
-          >
-            <div className="space-y-4">
-              <input
-                ref={imageUploadInputRef}
-                type="file"
-                accept={IMAGE_UPLOAD_ACCEPT}
-                multiple
-                className="hidden"
-                onChange={handleImageUploadChange}
-              />
-
-              <div className="flex gap-2 overflow-x-auto pb-1">
-                {imageScopeOptions.map((option) => {
-                  const count = imageScopeCounts.get(option.key) ?? 0;
-                  const selected = activeImageScope === option.key;
-
-                  return (
-                    <button
-                      key={option.key}
-                      type="button"
-                      onClick={() => setActiveImageScope(option.key)}
-                      className={cn(
-                        'min-w-[120px] rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors',
-                        selected ? 'border-terracotta bg-terracotta/10' : 'border-border bg-surface hover:border-terracotta/60',
-                      )}
-                    >
-                      <span className="flex items-center gap-2">
-                        {option.colorHex && (
-                          <span
-                            className="h-3 w-3 shrink-0 rounded-full border border-graphite/10"
-                            style={{ backgroundColor: option.colorHex }}
-                            aria-hidden
-                          />
-                        )}
-                        <span className="truncate text-xs font-semibold text-graphite">{option.shortLabel}</span>
-                        <span className="ml-auto rounded-full bg-cream-light px-1.5 py-0.5 text-[10px] font-semibold text-graphite-soft">
-                          {count}
-                        </span>
-                      </span>
-                      {option.meta && <span className="mt-0.5 block truncate text-[11px] text-graphite-soft">{option.meta}</span>}
-                    </button>
-                  );
-                })}
-              </div>
-
-              <div
-                role="button"
-                tabIndex={0}
-                onClick={() => imageUploadInputRef.current?.click()}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter' || event.key === ' ') imageUploadInputRef.current?.click();
-                }}
-                onDragEnter={handleImageDragEnter}
-                onDragOver={handleImageDragOver}
-                onDragLeave={handleImageDragLeave}
-                onDrop={handleImageDrop}
-                className={cn(
-                  'flex cursor-pointer flex-col items-center justify-center gap-2 rounded-[var(--radius-md)] border-2 border-dashed p-6 text-center transition-colors',
-                  isDraggingImages ? 'border-terracotta bg-terracotta/5' : 'border-border hover:border-terracotta/60',
-                )}
-              >
-                <UploadSimple size={24} className="text-store-gray" />
-                <p className="text-sm font-medium text-graphite">Enviar para {activeImageScopeOption?.shortLabel ?? 'Geral'}</p>
-                <p className="text-xs text-graphite-soft">JPG, PNG, WEBP ou GIF · até 10 MB · várias de uma vez</p>
-              </div>
-
-              {visibleImages.length > 0 && (
-                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {visibleImages.map((image) => {
-                    const scopeKey = imageScopeKey(image, variants);
-                    const scopeLabel = imageScopeOptionByKey.get(scopeKey)?.label ?? 'Produto geral';
-
-                    return (
-                      <div key={image.localId} className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
-                        <div className="group relative aspect-square overflow-hidden rounded-[var(--radius-md)] bg-cream-light">
-                          {image.publicUrl ? (
-                            <img src={image.publicUrl} alt={image.altText ?? ''} className="h-full w-full object-cover" />
-                          ) : (
-                            <div className="grid h-full w-full place-items-center text-store-gray">
-                              <ImageIcon size={24} />
-                            </div>
-                          )}
-
-                          <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-12px)] truncate rounded-full bg-surface/90 px-2 py-1 text-[11px] font-medium text-graphite shadow-sm">
-                            {scopeLabel}
-                          </span>
-
-                          {image.isMain && (
-                            <span className="absolute left-1.5 top-1.5">
-                              <Pill tone="info">Principal</Pill>
-                            </span>
-                          )}
-
-                          <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
-                            {!image.isMain && (
-                              <button
-                                type="button"
-                                title="Tornar principal"
-                                onClick={() => setMainImage(image.localId)}
-                                className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-graphite shadow-sm hover:text-terracotta"
-                              >
-                                <Star size={14} />
-                              </button>
-                            )}
-                            <button
-                              type="button"
-                              title="Remover imagem"
-                              onClick={() => setImages((current) => current.filter((item) => item.localId !== image.localId))}
-                              className="grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-danger shadow-sm hover:bg-danger hover:text-white"
-                            >
-                              <Trash size={14} />
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="mt-2 grid gap-2">
-                          <Field label="Imagem de">
-                            {(fieldId) => (
-                              <Select
-                                id={fieldId}
-                                value={scopeKey}
-                                onChange={(event) => updateImageScope(image.localId, event.target.value)}
-                                className="h-9 px-3 text-xs"
-                              >
-                                {imageScopeOptions.map((option) => (
-                                  <option key={option.key} value={option.key}>
-                                    {option.isPersisted ? option.label : `${option.label} (novo)`}
-                                  </option>
-                                ))}
-                              </Select>
-                            )}
-                          </Field>
-                          <Field label="Texto alternativo">
-                            {(fieldId) => (
-                              <Input
-                                id={fieldId}
-                                value={image.altText ?? ''}
-                                onChange={(event) => updateImage(image.localId, { altText: event.target.value })}
-                                className="h-9 px-3 text-xs"
-                              />
-                            )}
-                          </Field>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {images.length === 0 && <p className="text-sm text-graphite-soft">Nenhuma imagem cadastrada.</p>}
-              {images.length > 0 && visibleImages.length === 0 && (
-                <p className="rounded-[var(--radius-md)] border border-dashed border-border px-3 py-4 text-sm text-graphite-soft">
-                  Nenhuma imagem neste grupo.
-                </p>
-              )}
-            </div>
-          </Panel>
-
-          <Panel title="SEO">
-            <div className="grid gap-4">
-              <Field label="Título SEO">
-                {(fieldId) => (
-                  <Input
-                    id={fieldId}
-                    maxLength={160}
-                    value={form.seoTitle ?? ''}
-                    onChange={(event) => updateForm('seoTitle', event.target.value)}
-                  />
-                )}
-              </Field>
-              <Field label="Descrição SEO">
-                {(fieldId) => (
-                  <Textarea
-                    id={fieldId}
-                    maxLength={300}
-                    value={form.seoDescription ?? ''}
-                    onChange={(event) => updateForm('seoDescription', event.target.value)}
-                  />
-                )}
-              </Field>
-              <Field label="Palavras-chave">
-                {(fieldId) => (
-                  <Input
-                    id={fieldId}
-                    value={form.searchKeywords ?? ''}
-                    onChange={(event) => updateForm('searchKeywords', event.target.value)}
-                  />
-                )}
-              </Field>
-            </div>
-          </Panel>
+            {viewMode === 'steps' && !isLastStep ? (
+              <Button type="button" onClick={() => goToStep(currentStep + 1)}>
+                Próximo <CaretRight size={16} />
+              </Button>
+            ) : (
+              <Button type="submit" loading={saveMutation.isPending} disabled={imageUploadMutation.isPending}>
+                <FloppyDisk size={17} /> {isNew ? 'Criar produto' : 'Salvar alterações'}
+              </Button>
+            )}
+          </div>
         </div>
       </div>
     </form>

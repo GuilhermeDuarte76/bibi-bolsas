@@ -1,15 +1,39 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CheckCircle, MagnifyingGlass, PencilSimple, Plus, XCircle } from '@phosphor-icons/react';
+import {
+  ArrowCounterClockwise,
+  Archive,
+  CheckCircle,
+  Eye,
+  Folders,
+  FolderSimple,
+  PencilSimple,
+  Plus,
+  TreeStructure,
+} from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
 import type { AdminCategoryInput } from '@/lib/api/admin.service';
 import type { AdminCatalogCategory } from '@/types';
-import { PageHeader, Panel, AdminTable } from '@/components/admin/AdminUI';
-import { Button } from '@/components/ui/Button';
-import { Field, Input, Select, Textarea } from '@/components/ui/Field';
-import { Pill } from '@/components/ui/Badge';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { toast } from '@/components/ui/Toast';
+import {
+  Banner,
+  Button,
+  ConfirmDialog,
+  DataTable,
+  Field,
+  Input,
+  Modal,
+  NumberInput,
+  PageHeader,
+  SearchInput,
+  SectionCard,
+  Select,
+  StatCard,
+  StatusBadge,
+  Textarea,
+  Toolbar,
+  toast,
+  type Column,
+} from '@/components/admin/ui';
 import { formatDateShort, slugify } from '@/lib/utils';
 
 type CategoryStatusFilter = 'all' | 'active' | 'inactive';
@@ -72,27 +96,31 @@ function validateForm(
   const displayOrder = Number(form.displayOrder);
 
   if (name.length < 2) return 'Informe um nome de categoria com pelo menos 2 caracteres.';
-  if (name.length > 120) return 'O nome deve ter no maximo 120 caracteres.';
-  if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return 'O slug deve usar apenas letras minusculas, numeros e hifens.';
-  if (form.description.length > 500) return 'A descricao deve ter no maximo 500 caracteres.';
-  if (!Number.isFinite(displayOrder)) return 'A ordem precisa ser um numero valido.';
-  if (form.parentCategoryId && form.parentCategoryId === editingId) return 'A categoria nao pode ser pai dela mesma.';
-  if (form.parentCategoryId && blockedParentIds.has(form.parentCategoryId)) return 'A categoria pai nao pode ser uma subcategoria dela mesma.';
-  if (form.seoTitle.length > 160) return 'O titulo SEO deve ter no maximo 160 caracteres.';
-  if (form.seoDescription.length > 300) return 'A descricao SEO deve ter no maximo 300 caracteres.';
+  if (name.length > 120) return 'O nome deve ter no máximo 120 caracteres.';
+  if (slug && !/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(slug)) return 'O slug deve usar apenas letras minúsculas, números e hífens.';
+  if (form.description.length > 500) return 'A descrição deve ter no máximo 500 caracteres.';
+  if (!Number.isFinite(displayOrder)) return 'A ordem precisa ser um número válido.';
+  if (form.parentCategoryId && form.parentCategoryId === editingId) return 'A categoria não pode ser pai dela mesma.';
+  if (form.parentCategoryId && blockedParentIds.has(form.parentCategoryId)) return 'A categoria pai não pode ser uma subcategoria dela mesma.';
+  if (form.seoTitle.length > 160) return 'O título SEO deve ter no máximo 160 caracteres.';
+  if (form.seoDescription.length > 300) return 'A descrição SEO deve ter no máximo 300 caracteres.';
 
   return undefined;
 }
 
-function statusPill(category: AdminCatalogCategory) {
-  return category.isActive ? <Pill tone="success">Ativa</Pill> : <Pill tone="neutral">Arquivada</Pill>;
+function statusBadge(category: AdminCatalogCategory) {
+  return category.isActive ? (
+    <StatusBadge tone="success" dot>Ativa</StatusBadge>
+  ) : (
+    <StatusBadge tone="neutral" dot>Arquivada</StatusBadge>
+  );
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4 border-b border-border/60 py-2 last:border-0">
-      <span className="text-graphite-soft">{label}</span>
-      <span className="max-w-[60%] text-right font-medium text-graphite">{value}</span>
+    <div className="flex justify-between gap-4 border-b border-border/60 py-2.5 last:border-0">
+      <span className="text-sm text-graphite-soft">{label}</span>
+      <span className="max-w-[60%] text-right text-sm font-medium text-graphite">{value}</span>
     </div>
   );
 }
@@ -102,10 +130,12 @@ export function AdminCategories() {
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<CategoryStatusFilter>('all');
   const [editingId, setEditingId] = useState<string | undefined>();
-  const [selectedId, setSelectedId] = useState<string | undefined>();
+  const [formOpen, setFormOpen] = useState(false);
+  const [detailId, setDetailId] = useState<string | undefined>();
   const [archiveTargetId, setArchiveTargetId] = useState<string | undefined>();
   const [slugTouched, setSlugTouched] = useState(false);
   const [form, setForm] = useState<CategoryFormState>(emptyForm);
+  const [formError, setFormError] = useState<string | undefined>();
 
   const categoriesQuery = useQuery({
     queryKey: queryKeys.admin.categories,
@@ -162,10 +192,8 @@ export function AdminCategories() {
       .sort((a, b) => a.displayOrder - b.displayOrder || a.name.localeCompare(b.name));
   }, [categories, search, status]);
 
-  const selectedCategory = useMemo(
-    () => categories.find((category) => category.id === selectedId) ?? filteredCategories[0],
-    [categories, filteredCategories, selectedId],
-  );
+  const detailCategory = detailId ? categoriesById.get(detailId) : undefined;
+  const archiveTarget = archiveTargetId ? categoriesById.get(archiveTargetId) : undefined;
 
   const invalidateCategoryData = async () => {
     await Promise.all([
@@ -181,28 +209,29 @@ export function AdminCategories() {
       ? adminService.updateAdminCategory(editingId, input)
       : adminService.createAdminCategory(input),
     onSuccess: async (category) => {
+      const wasEditing = !!editingId;
       await invalidateCategoryData();
-      setSelectedId(category.id);
-      setEditingId(category.id);
-      setForm(categoryToForm(category));
-      setSlugTouched(true);
-      toast.success(editingId ? 'Categoria atualizada.' : 'Categoria criada.');
+      setFormOpen(false);
+      setFormError(undefined);
+      toast.success(
+        wasEditing
+          ? { title: 'Categoria atualizada', description: `“${category.name}” foi salva.` }
+          : { title: 'Categoria criada', description: `“${category.name}” entrou no catálogo.` },
+      );
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Nao foi possivel salvar a categoria.'),
+    onError: (error) =>
+      toast.error({ title: 'Não foi possível salvar', description: error instanceof Error ? error.message : 'Tente novamente.' }),
   });
 
   const archiveCategory = useMutation({
     mutationFn: (categoryId: string) => adminService.archiveAdminCategory(categoryId),
     onSuccess: async (category) => {
       await invalidateCategoryData();
-      setSelectedId(category.id);
       setArchiveTargetId(undefined);
-      if (editingId === category.id) {
-        setForm(categoryToForm(category));
-      }
-      toast.success('Categoria arquivada.');
+      toast.success({ title: 'Categoria arquivada', description: `“${category.name}” saiu da vitrine.` });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Nao foi possivel arquivar a categoria.'),
+    onError: (error) =>
+      toast.error({ title: 'Não foi possível arquivar', description: error instanceof Error ? error.message : 'Tente novamente.' }),
   });
 
   const reactivateCategory = useMutation({
@@ -218,11 +247,10 @@ export function AdminCategories() {
     }),
     onSuccess: async (category) => {
       await invalidateCategoryData();
-      setSelectedId(category.id);
-      if (editingId === category.id) setForm(categoryToForm(category));
-      toast.success('Categoria reativada.');
+      toast.success({ title: 'Categoria reativada', description: `“${category.name}” voltou à vitrine.` });
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Nao foi possivel reativar a categoria.'),
+    onError: (error) =>
+      toast.error({ title: 'Não foi possível reativar', description: error instanceof Error ? error.message : 'Tente novamente.' }),
   });
 
   const activeCount = categories.filter((category) => category.isActive).length;
@@ -230,23 +258,22 @@ export function AdminCategories() {
   const rootCount = categories.filter((category) => !category.parentCategoryId).length;
   const childCount = categories.filter((category) => category.parentCategoryId).length;
 
-  const startCreate = () => {
+  const openCreate = () => {
     setEditingId(undefined);
-    setSelectedId(undefined);
-    setArchiveTargetId(undefined);
     setSlugTouched(false);
-    setForm({
-      ...emptyForm,
-      displayOrder: String(categories.length + 1),
-    });
+    setFormError(undefined);
+    setForm({ ...emptyForm, displayOrder: String(categories.length + 1) });
+    setDetailId(undefined);
+    setFormOpen(true);
   };
 
-  const startEdit = (category: AdminCatalogCategory) => {
+  const openEdit = (category: AdminCatalogCategory) => {
     setEditingId(category.id);
-    setSelectedId(category.id);
-    setArchiveTargetId(undefined);
     setSlugTouched(true);
+    setFormError(undefined);
     setForm(categoryToForm(category));
+    setDetailId(undefined);
+    setFormOpen(true);
   };
 
   const handleNameChange = (value: string) => {
@@ -262,357 +289,311 @@ export function AdminCategories() {
     event.preventDefault();
     const error = validateForm(form, editingId, blockedParentIds);
     if (error) {
-      toast.error(error);
+      setFormError(error);
       return;
     }
-
+    setFormError(undefined);
     saveCategory.mutate(toInput(form));
   };
+
+  const columns: Column<AdminCatalogCategory>[] = [
+    {
+      key: 'category',
+      header: 'Categoria',
+      render: (category) => (
+        <div className="min-w-0">
+          <p className="truncate font-medium text-graphite">{category.name}</p>
+          <p className="line-clamp-1 text-xs text-graphite-soft">{category.description || 'Sem descrição'}</p>
+        </div>
+      ),
+    },
+    { key: 'slug', header: 'Slug', render: (category) => <span className="font-mono text-xs text-graphite-soft">{category.slug}</span> },
+    { key: 'order', header: 'Ordem', align: 'center', render: (category) => <span className="tabular-nums text-graphite-soft">{category.displayOrder}</span> },
+    {
+      key: 'structure',
+      header: 'Estrutura',
+      render: (category) => {
+        const parent = category.parentCategoryId ? categoriesById.get(category.parentCategoryId) : undefined;
+        const children = childrenByParent.get(category.id)?.length ?? 0;
+        return (
+          <span className="text-sm text-graphite-soft">
+            {parent ? `Sub de ${parent.name}` : children ? `${children} subcategorias` : 'Principal'}
+          </span>
+        );
+      },
+    },
+    { key: 'status', header: 'Status', render: statusBadge },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      width: '120px',
+      render: (category) => (
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setDetailId(category.id)}
+            title="Ver detalhe"
+            aria-label="Ver detalhe"
+            className="tactile rounded-md p-2 text-graphite-soft opacity-0 transition-opacity hover:bg-cream-light hover:text-graphite group-hover:opacity-100"
+          >
+            <Eye size={16} />
+          </button>
+          <Button size="sm" variant="outline" onClick={() => openEdit(category)}>
+            <PencilSimple size={15} /> Editar
+          </Button>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div>
       <PageHeader
+        breadcrumbs={[{ label: 'Catálogo' }, { label: 'Categorias' }]}
+        eyebrow="Catálogo"
         title="Categorias"
-        subtitle="Organize as colecoes, filtros publicos, ordem do catalogo e metadados de SEO."
-        action={<Button onClick={startCreate}><Plus size={17} /> Nova categoria</Button>}
+        subtitle="Organize coleções, ordem do catálogo, hierarquia e metadados de SEO."
+        action={<Button onClick={openCreate}><Plus size={17} weight="bold" /> Nova categoria</Button>}
       />
 
-      <div className="mb-6 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
-        <Panel>
-          <p className="text-sm text-graphite-soft">Total</p>
-          <p className="mt-2 text-2xl font-semibold text-graphite">{categories.length}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Ativas</p>
-          <p className="mt-2 text-2xl font-semibold text-success">{activeCount}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Arquivadas</p>
-          <p className="mt-2 text-2xl font-semibold text-store-gray">{archivedCount}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Principais</p>
-          <p className="mt-2 text-2xl font-semibold text-cinnamon">{rootCount}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Subcategorias</p>
-          <p className="mt-2 text-2xl font-semibold text-travel-blue">{childCount}</p>
-        </Panel>
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+        <StatCard label="Total" value={categories.length} icon={Folders} loading={categoriesQuery.isLoading} />
+        <StatCard label="Ativas" value={<span className="text-success">{activeCount}</span>} icon={CheckCircle} loading={categoriesQuery.isLoading} />
+        <StatCard label="Arquivadas" value={<span className="text-store-gray">{archivedCount}</span>} icon={Archive} loading={categoriesQuery.isLoading} />
+        <StatCard label="Principais" value={<span className="text-cinnamon">{rootCount}</span>} icon={FolderSimple} loading={categoriesQuery.isLoading} />
+        <StatCard label="Subcategorias" value={<span className="text-travel-blue">{childCount}</span>} icon={TreeStructure} loading={categoriesQuery.isLoading} />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.25fr_0.75fr]">
-        <Panel title="Estrutura do catalogo">
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_180px]">
-            <div className="relative">
-              <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-store-gray" />
-              <Input
-                placeholder="Buscar por nome, slug ou SEO"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-                aria-label="Buscar categoria"
-              />
-            </div>
-            <Select aria-label="Filtrar status" value={status} onChange={(event) => setStatus(event.target.value as CategoryStatusFilter)}>
-              <option value="all">Todas</option>
-              <option value="active">Ativas</option>
-              <option value="inactive">Arquivadas</option>
-            </Select>
+      <SectionCard
+        eyebrow="Catálogo"
+        title="Estrutura de categorias"
+        description={`${filteredCategories.length} ${filteredCategories.length === 1 ? 'categoria' : 'categorias'} no filtro.`}
+        bodyClassName="flex flex-col gap-4"
+      >
+        <Toolbar>
+          <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nome, slug ou SEO" />
+          <Select
+            aria-label="Filtrar status"
+            value={status}
+            onChange={(e) => setStatus(e.target.value as CategoryStatusFilter)}
+            className="sm:w-auto"
+          >
+            <option value="all">Todas</option>
+            <option value="active">Ativas</option>
+            <option value="inactive">Arquivadas</option>
+          </Select>
+        </Toolbar>
+
+        <DataTable<AdminCatalogCategory>
+          columns={columns}
+          rows={filteredCategories}
+          rowKey={(category) => category.id}
+          loading={categoriesQuery.isLoading}
+          onRowClick={(category) => setDetailId(category.id)}
+          minWidth={720}
+          empty={{
+            icon: Folders,
+            title: 'Nenhuma categoria encontrada',
+            description: 'Ajuste os filtros ou crie uma nova categoria.',
+            action: <Button size="sm" onClick={openCreate}><Plus size={15} /> Nova categoria</Button>,
+          }}
+        />
+      </SectionCard>
+
+      {/* Modal: criar / editar */}
+      <Modal
+        open={formOpen}
+        onClose={() => setFormOpen(false)}
+        size="lg"
+        title={editingId ? 'Editar categoria' : 'Nova categoria'}
+        description={editingId ? 'Atualize as informações da categoria.' : 'Cadastre uma nova categoria no catálogo.'}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setFormOpen(false)}>Cancelar</Button>
+            <Button form="category-form" type="submit" size="sm" loading={saveCategory.isPending}>
+              <CheckCircle size={16} /> {editingId ? 'Salvar alterações' : 'Criar categoria'}
+            </Button>
+          </>
+        }
+      >
+        <form id="category-form" className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          {formError && (
+            <Banner tone="danger" title="Revise o formulário" onDismiss={() => setFormError(undefined)}>
+              {formError}
+            </Banner>
+          )}
+
+          <Field label="Nome" required>
+            {(id, describedBy) => (
+              <Input id={id} aria-describedby={describedBy} maxLength={120} value={form.name} onChange={(e) => handleNameChange(e.target.value)} autoFocus />
+            )}
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Slug" hint="Ex.: bolsas-de-mao">
+              {(id, describedBy) => (
+                <Input
+                  id={id}
+                  aria-describedby={describedBy}
+                  maxLength={160}
+                  value={form.slug}
+                  onChange={(e) => {
+                    setSlugTouched(true);
+                    setForm((current) => ({ ...current, slug: slugify(e.target.value) }));
+                  }}
+                />
+              )}
+            </Field>
+            <Field label="Ordem de exibição">
+              {(id) => (
+                <NumberInput
+                  id={id}
+                  stepper
+                  min={0}
+                  value={Number(form.displayOrder) || 0}
+                  onChange={(n) => setForm((current) => ({ ...current, displayOrder: String(n ?? 0) }))}
+                />
+              )}
+            </Field>
           </div>
 
-          {categoriesQuery.isLoading ? (
-            <Skeleton className="h-80 w-full rounded-[var(--radius-lg)]" />
-          ) : (
-            <AdminTable<AdminCatalogCategory>
-              rowKey={(category) => category.id}
-              rows={filteredCategories}
-              empty="Nenhuma categoria encontrada."
-              onRowClick={(category) => setSelectedId(category.id)}
-              columns={[
-                {
-                  key: 'category',
-                  header: 'Categoria',
-                  render: (category) => (
-                    <div>
-                      <p className="font-medium">{category.name}</p>
-                      <p className="line-clamp-1 text-xs text-graphite-soft">{category.description || 'Sem descricao curta'}</p>
-                    </div>
-                  ),
-                },
-                {
-                  key: 'slug',
-                  header: 'Slug',
-                  render: (category) => <span className="font-mono text-xs text-graphite-soft">{category.slug}</span>,
-                },
-                { key: 'order', header: 'Ordem', render: (category) => category.displayOrder },
-                {
-                  key: 'structure',
-                  header: 'Estrutura',
-                  render: (category) => {
-                    const parent = category.parentCategoryId ? categoriesById.get(category.parentCategoryId) : undefined;
-                    const children = childrenByParent.get(category.id)?.length ?? 0;
-                    return parent ? `Sub de ${parent.name}` : children ? `${children} subcategorias` : 'Principal';
-                  },
-                },
-                { key: 'status', header: 'Status', render: statusPill },
-                {
-                  key: 'seo',
-                  header: 'SEO',
-                  render: (category) => category.seoTitle || category.seoDescription ? <Pill tone="info">Configurado</Pill> : '-',
-                },
-                {
-                  key: 'actions',
-                  header: 'Acoes',
-                  render: (category) => (
-                    <div className="flex flex-wrap gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          startEdit(category);
-                        }}
-                      >
-                        <PencilSimple size={15} /> Editar
-                      </Button>
-                      {category.isActive ? (
-                        archiveTargetId === category.id ? (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="danger"
-                              loading={archiveCategory.isPending}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                archiveCategory.mutate(category.id);
-                              }}
-                            >
-                              Confirmar
-                            </Button>
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                setArchiveTargetId(undefined);
-                              }}
-                            >
-                              Cancelar
-                            </Button>
-                          </>
-                        ) : (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={(event) => {
-                              event.stopPropagation();
-                              setArchiveTargetId(category.id);
-                            }}
-                          >
-                            <XCircle size={15} /> Arquivar
-                          </Button>
-                        )
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          loading={reactivateCategory.isPending}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            reactivateCategory.mutate(category);
-                          }}
-                        >
-                          <CheckCircle size={15} /> Reativar
-                        </Button>
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
-            />
-          )}
-        </Panel>
-
-        <div className="flex flex-col gap-6">
-          <Panel title={editingId ? 'Editar categoria' : 'Nova categoria'}>
-            <form className="space-y-4" onSubmit={handleSubmit}>
-              <Field label="Nome" required>
-                {(id, describedBy) => (
-                  <Input
-                    id={id}
-                    aria-describedby={describedBy}
-                    maxLength={120}
-                    value={form.name}
-                    onChange={(event) => handleNameChange(event.target.value)}
-                  />
-                )}
-              </Field>
-
-              <Field label="Slug" hint="Usado na URL publica. Ex.: bolsas-de-mao">
-                {(id, describedBy) => (
-                  <Input
-                    id={id}
-                    aria-describedby={describedBy}
-                    maxLength={160}
-                    value={form.slug}
-                    onChange={(event) => {
-                      setSlugTouched(true);
-                      setForm((current) => ({ ...current, slug: slugify(event.target.value) }));
-                    }}
-                  />
-                )}
-              </Field>
-
-              <Field label="Descricao">
-                {(id, describedBy) => (
-                  <Textarea
-                    id={id}
-                    aria-describedby={describedBy}
-                    maxLength={500}
-                    value={form.description}
-                    onChange={(event) => setForm((current) => ({ ...current, description: event.target.value }))}
-                  />
-                )}
-              </Field>
-
-              <div className="grid gap-3 md:grid-cols-2">
-                <Field label="Categoria pai">
-                  {(id, describedBy) => (
-                    <Select
-                      id={id}
-                      aria-describedby={describedBy}
-                      value={form.parentCategoryId}
-                      onChange={(event) => setForm((current) => ({ ...current, parentCategoryId: event.target.value }))}
-                    >
-                      <option value="">Principal</option>
-                      {categories
-                        .filter((category) => category.isActive && category.id !== editingId && !blockedParentIds.has(category.id))
-                        .map((category) => (
-                          <option key={category.id} value={category.id}>{category.name}</option>
-                        ))}
-                    </Select>
-                  )}
-                </Field>
-                <Field label="Status">
-                  {(id, describedBy) => (
-                    <Select
-                      id={id}
-                      aria-describedby={describedBy}
-                      value={form.isActive}
-                      onChange={(event) => setForm((current) => ({ ...current, isActive: event.target.value as CategoryFormState['isActive'] }))}
-                    >
-                      <option value="true">Ativa</option>
-                      <option value="false">Arquivada</option>
-                    </Select>
-                  )}
-                </Field>
-              </div>
-
-              <Field label="Ordem de exibicao">
-                {(id, describedBy) => (
-                  <Input
-                    id={id}
-                    aria-describedby={describedBy}
-                    type="number"
-                    value={form.displayOrder}
-                    onChange={(event) => setForm((current) => ({ ...current, displayOrder: event.target.value }))}
-                  />
-                )}
-              </Field>
-
-              <div className="rounded-[var(--radius-md)] border border-border/80 bg-cream-light/35 p-4">
-                <p className="mb-3 text-sm font-semibold text-graphite">SEO</p>
-                <div className="space-y-3">
-                  <Field label="Titulo SEO">
-                    {(id, describedBy) => (
-                      <Input
-                        id={id}
-                        aria-describedby={describedBy}
-                        maxLength={160}
-                        value={form.seoTitle}
-                        onChange={(event) => setForm((current) => ({ ...current, seoTitle: event.target.value }))}
-                      />
-                    )}
-                  </Field>
-                  <Field label="Descricao SEO">
-                    {(id, describedBy) => (
-                      <Textarea
-                        id={id}
-                        aria-describedby={describedBy}
-                        maxLength={300}
-                        value={form.seoDescription}
-                        onChange={(event) => setForm((current) => ({ ...current, seoDescription: event.target.value }))}
-                        className="min-h-[88px]"
-                      />
-                    )}
-                  </Field>
-                </div>
-              </div>
-
-              <div className="flex flex-wrap justify-end gap-2">
-                {editingId && (
-                  <Button type="button" variant="ghost" onClick={startCreate}>
-                    Limpar
-                  </Button>
-                )}
-                <Button type="submit" loading={saveCategory.isPending}>
-                  <CheckCircle size={16} /> {editingId ? 'Salvar alteracoes' : 'Criar categoria'}
-                </Button>
-              </div>
-            </form>
-          </Panel>
-
-          <Panel title="Detalhe">
-            {categoriesQuery.isLoading ? (
-              <Skeleton className="h-48 w-full rounded-[var(--radius-lg)]" />
-            ) : selectedCategory ? (
-              <div className="space-y-4">
-                <div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <h2 className="font-semibold text-graphite">{selectedCategory.name}</h2>
-                    {statusPill(selectedCategory)}
-                  </div>
-                  <p className="mt-1 break-all font-mono text-xs text-graphite-soft">{selectedCategory.slug}</p>
-                </div>
-
-                <div className="grid gap-2 text-sm">
-                  <DetailRow
-                    label="Categoria pai"
-                    value={selectedCategory.parentCategoryId ? categoriesById.get(selectedCategory.parentCategoryId)?.name ?? '-' : 'Principal'}
-                  />
-                  <DetailRow label="Subcategorias" value={String(childrenByParent.get(selectedCategory.id)?.length ?? 0)} />
-                  <DetailRow label="Ordem" value={String(selectedCategory.displayOrder)} />
-                  <DetailRow label="Criada em" value={formatDateShort(selectedCategory.createdAt)} />
-                  <DetailRow label="Atualizada em" value={selectedCategory.updatedAt ? formatDateShort(selectedCategory.updatedAt) : '-'} />
-                </div>
-
-                {selectedCategory.description && (
-                  <p className="rounded-[var(--radius-md)] bg-cream-light/60 p-3 text-sm text-graphite-soft">
-                    {selectedCategory.description}
-                  </p>
-                )}
-
-                <div className="flex flex-wrap gap-2">
-                  <Button size="sm" variant="outline" onClick={() => startEdit(selectedCategory)}>
-                    <PencilSimple size={15} /> Editar
-                  </Button>
-                  {selectedCategory.isActive ? (
-                    <Button size="sm" variant="danger" loading={archiveCategory.isPending} onClick={() => archiveCategory.mutate(selectedCategory.id)}>
-                      <XCircle size={15} /> Arquivar
-                    </Button>
-                  ) : (
-                    <Button size="sm" variant="outline" loading={reactivateCategory.isPending} onClick={() => reactivateCategory.mutate(selectedCategory)}>
-                      <CheckCircle size={15} /> Reativar
-                    </Button>
-                  )}
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-graphite-soft">Selecione uma categoria para ver os detalhes.</p>
+          <Field label="Descrição" hint={`${form.description.length}/500`}>
+            {(id, describedBy) => (
+              <Textarea
+                id={id}
+                aria-describedby={describedBy}
+                maxLength={500}
+                value={form.description}
+                onChange={(e) => setForm((current) => ({ ...current, description: e.target.value }))}
+              />
             )}
-          </Panel>
-        </div>
-      </div>
+          </Field>
+
+          <div className="grid gap-4 sm:grid-cols-2">
+            <Field label="Categoria pai">
+              {(id, describedBy) => (
+                <Select
+                  id={id}
+                  aria-describedby={describedBy}
+                  value={form.parentCategoryId}
+                  onChange={(e) => setForm((current) => ({ ...current, parentCategoryId: e.target.value }))}
+                >
+                  <option value="">Principal</option>
+                  {categories
+                    .filter((category) => category.isActive && category.id !== editingId && !blockedParentIds.has(category.id))
+                    .map((category) => (
+                      <option key={category.id} value={category.id}>{category.name}</option>
+                    ))}
+                </Select>
+              )}
+            </Field>
+            <Field label="Status">
+              {(id, describedBy) => (
+                <Select
+                  id={id}
+                  aria-describedby={describedBy}
+                  value={form.isActive}
+                  onChange={(e) => setForm((current) => ({ ...current, isActive: e.target.value as CategoryFormState['isActive'] }))}
+                >
+                  <option value="true">Ativa</option>
+                  <option value="false">Arquivada</option>
+                </Select>
+              )}
+            </Field>
+          </div>
+
+          <div className="rounded-[var(--radius-md)] border border-border/80 bg-cream-lighter/50 p-4">
+            <p className="eyebrow mb-3 text-[0.68rem]">SEO</p>
+            <div className="flex flex-col gap-3">
+              <Field label="Título SEO" hint={`${form.seoTitle.length}/160`}>
+                {(id, describedBy) => (
+                  <Input id={id} aria-describedby={describedBy} maxLength={160} value={form.seoTitle} onChange={(e) => setForm((current) => ({ ...current, seoTitle: e.target.value }))} />
+                )}
+              </Field>
+              <Field label="Descrição SEO" hint={`${form.seoDescription.length}/300`}>
+                {(id, describedBy) => (
+                  <Textarea id={id} aria-describedby={describedBy} maxLength={300} value={form.seoDescription} onChange={(e) => setForm((current) => ({ ...current, seoDescription: e.target.value }))} className="min-h-[88px]" />
+                )}
+              </Field>
+            </div>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Modal: detalhe */}
+      <Modal
+        open={!!detailId}
+        onClose={() => setDetailId(undefined)}
+        size="md"
+        title={detailCategory?.name ?? 'Categoria'}
+        description={detailCategory?.slug}
+        footer={
+          detailCategory && (
+            <>
+              {detailCategory.isActive ? (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-danger hover:bg-danger-soft/60"
+                  onClick={() => {
+                    setDetailId(undefined);
+                    setArchiveTargetId(detailCategory.id);
+                  }}
+                >
+                  <Archive size={15} /> Arquivar
+                </Button>
+              ) : (
+                <Button variant="outline" size="sm" loading={reactivateCategory.isPending} onClick={() => reactivateCategory.mutate(detailCategory)}>
+                  <ArrowCounterClockwise size={15} /> Reativar
+                </Button>
+              )}
+              <Button size="sm" onClick={() => openEdit(detailCategory)}>
+                <PencilSimple size={15} /> Editar
+              </Button>
+            </>
+          )
+        }
+      >
+        {detailCategory && (
+          <div className="flex flex-col gap-4">
+            <div className="flex flex-wrap items-center gap-2">
+              {statusBadge(detailCategory)}
+              {detailCategory.seoTitle || detailCategory.seoDescription ? (
+                <StatusBadge tone="info" size="sm">SEO configurado</StatusBadge>
+              ) : null}
+            </div>
+
+            <dl className="text-sm">
+              <DetailRow
+                label="Categoria pai"
+                value={detailCategory.parentCategoryId ? categoriesById.get(detailCategory.parentCategoryId)?.name ?? '—' : 'Principal'}
+              />
+              <DetailRow label="Subcategorias" value={String(childrenByParent.get(detailCategory.id)?.length ?? 0)} />
+              <DetailRow label="Ordem" value={String(detailCategory.displayOrder)} />
+              <DetailRow label="Criada em" value={formatDateShort(detailCategory.createdAt)} />
+              <DetailRow label="Atualizada em" value={detailCategory.updatedAt ? formatDateShort(detailCategory.updatedAt) : '—'} />
+            </dl>
+
+            {detailCategory.description && (
+              <p className="rounded-[var(--radius-md)] bg-cream-lighter px-3 py-3 text-sm text-graphite-soft">{detailCategory.description}</p>
+            )}
+          </div>
+        )}
+      </Modal>
+
+      <ConfirmDialog
+        open={!!archiveTargetId}
+        onClose={() => setArchiveTargetId(undefined)}
+        onConfirm={() => archiveTargetId && archiveCategory.mutate(archiveTargetId)}
+        title="Arquivar categoria"
+        description={
+          archiveTarget
+            ? `“${archiveTarget.name}” deixará de aparecer na loja. Você pode reativá-la depois.`
+            : 'A categoria deixará de aparecer na loja.'
+        }
+        confirmLabel="Arquivar"
+        loading={archiveCategory.isPending}
+      />
     </div>
   );
 }

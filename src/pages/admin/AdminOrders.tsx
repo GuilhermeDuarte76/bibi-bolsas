@@ -1,17 +1,43 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CaretLeft, ClockCounterClockwise, DownloadSimple, FileText, MagnifyingGlass, Printer, WarningCircle } from '@phosphor-icons/react';
+import {
+  CaretLeft,
+  CheckCircle,
+  ClockCounterClockwise,
+  Clock,
+  DownloadSimple,
+  FileText,
+  Printer,
+  Truck,
+  X,
+} from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
 import type { FiscalPreview, Order, OrderStatus, PaymentAttempt, PaymentMethod, WebhookEvent } from '@/types';
 import type { AdminOrderFilters } from '@/lib/api/admin.service';
-import { PageHeader, AdminTable, Panel } from '@/components/admin/AdminUI';
 import { ORDER_STATUS_LABEL, OrderStatusPill } from '@/lib/orderStatus';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { Pill } from '@/components/ui/Badge';
-import { Button } from '@/components/ui/Button';
-import { Field, Input, Select, Textarea } from '@/components/ui/Field';
-import { toast } from '@/components/ui/Toast';
+import {
+  Banner,
+  Button,
+  DataTable,
+  Field,
+  Input,
+  Modal,
+  PageHeader,
+  SearchInput,
+  SectionCard,
+  Select,
+  StatCard,
+  StatusBadge,
+  Tabs,
+  Textarea,
+  Toolbar,
+  ToolbarSpacer,
+  toast,
+  type Column,
+  type TabItem,
+  type Tone,
+} from '@/components/admin/ui';
 import { formatDate, formatDateShort, formatPrice, formatZip } from '@/lib/utils';
 
 const STATUS_FILTERS: (OrderStatus | 'all')[] = ['all', 'pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'canceled', 'refunded'];
@@ -67,6 +93,14 @@ function historyStatusLabel(status: string): string {
 
 function errorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function paymentTone(status: string): Tone {
+  return status === 'Approved' ? 'success' : status === 'Failed' ? 'danger' : 'warning';
+}
+
+function webhookTone(status: string): Tone {
+  return status === 'Processed' ? 'success' : status === 'Failed' ? 'danger' : 'warning';
 }
 
 function escapeHtml(value: string): string {
@@ -170,7 +204,7 @@ function fiscalPrintHtml(preview: FiscalPreview): string {
 function printFiscalPreview(preview: FiscalPreview): void {
   const popup = window.open('', '_blank');
   if (!popup) {
-    toast.error('Nao foi possivel abrir a janela de impressão.');
+    toast.error({ title: 'Impressão bloqueada', description: 'Não foi possível abrir a janela de impressão.' });
     return;
   }
 
@@ -203,84 +237,69 @@ export function AdminOrders() {
   const paidCount = rows.filter((order) => order.status === 'paid').length;
   const shippingCount = rows.filter((order) => order.status === 'processing' || order.status === 'shipped').length;
   const pendingCount = rows.filter((order) => order.status === 'pending_payment').length;
+  const hasFilters = !!(search || from || to || status !== 'all');
+
+  const statusTabs: TabItem[] = STATUS_FILTERS.map((s) => ({
+    value: s,
+    label: s === 'all' ? 'Todos' : ORDER_STATUS_LABEL[s],
+  }));
+
+  const columns: Column<Order>[] = [
+    { key: 'number', header: 'Pedido', render: (o) => <span className="font-medium text-graphite">{o.number}</span> },
+    { key: 'date', header: 'Data', render: (o) => <span className="text-graphite-soft">{formatDateShort(o.createdAt)}</span> },
+    { key: 'customer', header: 'Cliente', render: (o) => <span className="truncate">{o.shippingAddress.recipient || 'Cliente no detalhe'}</span> },
+    { key: 'payment', header: 'Pagamento', render: (o) => <span className="text-graphite-soft">{PAYMENT_LABEL[o.paymentMethod]}</span> },
+    { key: 'total', header: 'Total', align: 'right', render: (o) => <span className="font-medium tabular-nums">{formatPrice(o.totalCents)}</span> },
+    { key: 'status', header: 'Status', render: (o) => <OrderStatusPill status={o.status} /> },
+  ];
 
   return (
     <div>
-      <PageHeader title="Pedidos" subtitle={`${rows.length} pedidos no filtro`} />
+      <PageHeader
+        breadcrumbs={[{ label: 'Operação' }, { label: 'Pedidos' }]}
+        eyebrow="Operação"
+        title="Pedidos"
+        subtitle={`${rows.length} ${rows.length === 1 ? 'pedido' : 'pedidos'} no filtro atual.`}
+      />
 
-      <div className="mb-6 grid gap-4 md:grid-cols-3">
-        <Panel>
-          <p className="text-sm text-graphite-soft">Pagamento pendente</p>
-          <p className="mt-2 text-2xl font-semibold text-warning">{pendingCount}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Pagos</p>
-          <p className="mt-2 text-2xl font-semibold text-success">{paidCount}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Operação/envio</p>
-          <p className="mt-2 text-2xl font-semibold text-graphite">{shippingCount}</p>
-        </Panel>
+      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+        <StatCard label="Pagamento pendente" value={<span className={pendingCount ? 'text-warning' : undefined}>{pendingCount}</span>} icon={Clock} loading={isLoading} />
+        <StatCard label="Pagos" value={<span className="text-success">{paidCount}</span>} icon={CheckCircle} loading={isLoading} />
+        <StatCard label="Operação / envio" value={shippingCount} icon={Truck} loading={isLoading} />
       </div>
 
-      <Panel title="Filtros">
-        <div className="grid gap-3 lg:grid-cols-[1fr_170px_170px_170px]">
-          <div className="relative">
-            <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-store-gray" />
-            <Input
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Pedido, cliente, CPF, e-mail ou rastreio"
-              className="pl-10"
-              aria-label="Buscar pedido"
-            />
-          </div>
-          <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Data inicial" />
-          <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="Data final" />
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => {
-              setSearch('');
-              setFrom('');
-              setTo('');
-              setStatus('all');
-            }}
-          >
-            Limpar filtros
-          </Button>
-        </div>
-      </Panel>
+      <SectionCard
+        eyebrow="Vendas"
+        title="Todos os pedidos"
+        description="Filtre por status, período ou busque por pedido, cliente, CPF, e-mail ou rastreio."
+        bodyClassName="flex flex-col gap-4"
+      >
+        <Toolbar>
+          <SearchInput value={search} onChange={setSearch} placeholder="Pedido, cliente, CPF, e-mail ou rastreio" containerClassName="sm:w-80" />
+          <Input type="date" value={from} onChange={(e) => setFrom(e.target.value)} aria-label="Data inicial" className="sm:w-auto" />
+          <Input type="date" value={to} onChange={(e) => setTo(e.target.value)} aria-label="Data final" className="sm:w-auto" />
+          {hasFilters && (
+            <>
+              <ToolbarSpacer />
+              <Button variant="ghost" size="sm" onClick={() => { setSearch(''); setFrom(''); setTo(''); setStatus('all'); }}>
+                <X size={15} /> Limpar filtros
+              </Button>
+            </>
+          )}
+        </Toolbar>
 
-      <div className="my-4 flex flex-wrap gap-2">
-        {STATUS_FILTERS.map((s) => (
-          <button
-            key={s}
-            onClick={() => setStatus(s)}
-            className={`tactile rounded-full border px-4 py-1.5 text-sm ${status === s ? 'border-graphite bg-graphite text-cream-light' : 'border-border text-graphite hover:border-graphite'}`}
-          >
-            {s === 'all' ? 'Todos' : ORDER_STATUS_LABEL[s]}
-          </button>
-        ))}
-      </div>
+        <Tabs items={statusTabs} value={status} onChange={(v) => setStatus(v as OrderStatus | 'all')} />
 
-      {isLoading || isFetching ? (
-        <Skeleton className="h-72 w-full rounded-[var(--radius-lg)]" />
-      ) : (
-        <AdminTable<Order>
-          rowKey={(o) => o.id}
+        <DataTable<Order>
+          columns={columns}
           rows={rows}
+          rowKey={(o) => o.id}
+          loading={isLoading || isFetching}
           onRowClick={(o) => navigate(`/admin/pedidos/${o.id}`)}
-          columns={[
-            { key: 'number', header: 'Pedido', render: (o) => <span className="font-medium">{o.number}</span> },
-            { key: 'date', header: 'Data', render: (o) => formatDateShort(o.createdAt) },
-            { key: 'customer', header: 'Cliente', render: (o) => o.shippingAddress.recipient || 'Cliente no detalhe' },
-            { key: 'payment', header: 'Pagamento', render: (o) => PAYMENT_LABEL[o.paymentMethod] },
-            { key: 'total', header: 'Total', render: (o) => formatPrice(o.totalCents) },
-            { key: 'status', header: 'Status', render: (o) => <OrderStatusPill status={o.status} /> },
-          ]}
+          minWidth={720}
+          empty={{ icon: FileText, title: 'Nenhum pedido encontrado', description: 'Ajuste os filtros para ver mais resultados.' }}
         />
-      )}
+      </SectionCard>
     </div>
   );
 }
@@ -291,6 +310,7 @@ export function AdminOrderDetail() {
   const queryClient = useQueryClient();
   const [statusTarget, setStatusTarget] = useState<OrderStatus | ''>('');
   const [statusReason, setStatusReason] = useState('');
+  const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [shipmentForm, setShipmentForm] = useState<ShipmentFormState>({
     carrier: '',
@@ -328,50 +348,51 @@ export function AdminOrderDetail() {
     mutationFn: () => adminService.generateFiscalPreview(id!),
     onSuccess: (preview) => {
       queryClient.setQueryData(queryKeys.admin.fiscalPreview(id!), preview);
-      toast.success('Prévia fiscal gerada.');
+      toast.success({ title: 'Prévia fiscal gerada', description: 'Confira os dados antes da emissão real.' });
     },
-    onError: (error) => toast.error(errorMessage(error, 'Nao foi possivel gerar a prévia fiscal.')),
+    onError: (error) => toast.error({ title: 'Falha na prévia fiscal', description: errorMessage(error, 'Tente novamente.') }),
   });
   const downloadFiscalXml = useMutation({
     mutationFn: () => adminService.getFiscalDraftXml(id!),
     onSuccess: (xml) => {
       downloadTextFile(xml, `pedido-${order?.number ?? id}-xml-rascunho.xml`, 'application/xml;charset=utf-8');
-      toast.success('XML de rascunho baixado.');
+      toast.success({ title: 'XML baixado', description: 'O XML de rascunho foi salvo.' });
     },
-    onError: (error) => toast.error(errorMessage(error, 'Nao foi possivel baixar o XML.')),
+    onError: (error) => toast.error({ title: 'Falha ao baixar XML', description: errorMessage(error, 'Tente novamente.') }),
   });
-  const applyOrderUpdate = async (updated: Order, message: string) => {
+  const applyOrderUpdate = async (updated: Order, title: string, description: string) => {
     queryClient.setQueryData(queryKeys.admin.order(id!), updated);
     queryClient.setQueryData(queryKeys.admin.orderHistory(id!), updated.history ?? []);
     await queryClient.invalidateQueries({ queryKey: queryKeys.admin.orders });
-    toast.success(message);
+    toast.success({ title, description });
   };
   const updateStatus = useMutation({
     mutationFn: () => adminService.updateOrderStatus(id!, statusTarget as OrderStatus, statusReason.trim()),
     onSuccess: (updated) => {
       setStatusTarget('');
       setStatusReason('');
-      void applyOrderUpdate(updated, 'Status atualizado e registrado na auditoria.');
+      void applyOrderUpdate(updated, 'Status atualizado', 'A mudança foi registrada na auditoria.');
     },
-    onError: (error) => toast.error(errorMessage(error, 'Nao foi possivel atualizar o status.')),
+    onError: (error) => toast.error({ title: 'Não foi possível atualizar', description: errorMessage(error, 'Tente novamente.') }),
   });
   const cancelOrder = useMutation({
     mutationFn: () => adminService.cancelOrder(id!, cancelReason.trim()),
     onSuccess: (updated) => {
       setCancelReason('');
-      void applyOrderUpdate(updated, 'Pedido cancelado com registro de auditoria.');
+      setCancelOpen(false);
+      void applyOrderUpdate(updated, 'Pedido cancelado', 'Reservas e cupom foram liberados; registro em auditoria.');
     },
-    onError: (error) => toast.error(errorMessage(error, 'Nao foi possivel cancelar o pedido.')),
+    onError: (error) => toast.error({ title: 'Não foi possível cancelar', description: errorMessage(error, 'Tente novamente.') }),
   });
   const registerShipment = useMutation({
     mutationFn: () => adminService.registerShipment(id!, shipmentForm),
-    onSuccess: (updated) => void applyOrderUpdate(updated, 'Envio registrado com rastreio.'),
-    onError: (error) => toast.error(errorMessage(error, 'Nao foi possivel registrar o envio.')),
+    onSuccess: (updated) => void applyOrderUpdate(updated, 'Envio registrado', 'O rastreio foi vinculado ao pedido.'),
+    onError: (error) => toast.error({ title: 'Não foi possível registrar o envio', description: errorMessage(error, 'Tente novamente.') }),
   });
   const updateTracking = useMutation({
     mutationFn: () => adminService.updateTracking(id!, shipmentForm),
-    onSuccess: (updated) => void applyOrderUpdate(updated, 'Rastreio atualizado com registro de auditoria.'),
-    onError: (error) => toast.error(errorMessage(error, 'Nao foi possivel atualizar o rastreio.')),
+    onSuccess: (updated) => void applyOrderUpdate(updated, 'Rastreio atualizado', 'A mudança foi registrada na auditoria.'),
+    onError: (error) => toast.error({ title: 'Não foi possível atualizar o rastreio', description: errorMessage(error, 'Tente novamente.') }),
   });
 
   const preview = generateFiscalPreview.data ?? fiscalPreview.data;
@@ -396,43 +417,66 @@ export function AdminOrderDetail() {
     });
   }, [order?.id, order?.shipping.carrier, order?.shipping.service, order?.tracking?.carrier, order?.tracking?.code, order?.tracking?.url]);
 
-  if (isLoading || !order) return <Skeleton className="h-96 w-full rounded-[var(--radius-lg)]" />;
+  if (isLoading || !order) {
+    return (
+      <div className="space-y-6">
+        <div className="h-8 w-64 animate-pulse rounded bg-cream-light" />
+        <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
+          <div className="h-96 animate-pulse rounded-[var(--radius-lg)] bg-cream-light" />
+          <div className="h-96 animate-pulse rounded-[var(--radius-lg)] bg-cream-light" />
+        </div>
+      </div>
+    );
+  }
+
+  const itemColumns: Column<Order['items'][number]>[] = [
+    {
+      key: 'name',
+      header: 'Produto',
+      render: (it) => (
+        <div className="flex items-center gap-3">
+          <img src={it.image} alt="" className="h-11 w-10 shrink-0 rounded-md border border-border object-cover" />
+          <div className="min-w-0">
+            <p className="truncate font-medium text-graphite">{it.name}</p>
+            <p className="truncate text-xs text-graphite-soft">{it.colorName}{it.sizeLabel ? ` · ${it.sizeLabel}` : ''}</p>
+          </div>
+        </div>
+      ),
+    },
+    { key: 'qty', header: 'Qtd', align: 'center', render: (it) => <span className="tabular-nums">{it.quantity}</span> },
+    { key: 'price', header: 'Total', align: 'right', render: (it) => <span className="font-medium tabular-nums">{formatPrice(it.unitPriceCents * it.quantity)}</span> },
+  ];
 
   return (
     <div>
-      <button onClick={() => navigate('/admin/pedidos')} className="mb-4 flex items-center gap-1 text-sm text-graphite-soft hover:text-graphite">
+      <button onClick={() => navigate('/admin/pedidos')} className="tactile mb-4 flex items-center gap-1 rounded text-sm text-graphite-soft hover:text-graphite">
         <CaretLeft size={16} /> Voltar para pedidos
       </button>
       <PageHeader
+        breadcrumbs={[{ label: 'Operação' }, { label: 'Pedidos', to: '/admin/pedidos' }, { label: order.number }]}
+        eyebrow="Pedido"
         title={`Pedido ${order.number}`}
         subtitle={`Realizado em ${formatDate(order.createdAt)}`}
         action={<OrderStatusPill status={order.status} />}
       />
 
       <div className="grid gap-6 lg:grid-cols-[1.5fr_1fr]">
-        <div className="flex flex-col gap-6">
-          <Panel title="Itens">
-            <AdminTable
-              rowKey={(it: Order['items'][number]) => it.sku}
+        <div className="flex min-w-0 flex-col gap-6">
+          <SectionCard eyebrow="Conteúdo" title="Itens do pedido" bodyClassName="p-0">
+            <DataTable
+              columns={itemColumns}
               rows={order.items}
-              columns={[
-                { key: 'name', header: 'Produto', render: (it) => (
-                  <div className="flex items-center gap-3">
-                    <img src={it.image} alt="" className="h-10 w-9 rounded-md object-cover" />
-                    <div><p className="font-medium">{it.name}</p><p className="text-xs text-graphite-soft">{it.colorName}{it.sizeLabel ? ` · ${it.sizeLabel}` : ''}</p></div>
-                  </div>
-                ) },
-                { key: 'qty', header: 'Qtd', render: (it) => `${it.quantity}` },
-                { key: 'price', header: 'Total', render: (it) => formatPrice(it.unitPriceCents * it.quantity) },
-              ]}
+              rowKey={(it: Order['items'][number]) => it.sku}
+              className="rounded-none border-0 shadow-none"
+              minWidth={480}
             />
-          </Panel>
+          </SectionCard>
 
-          <Panel title="Ações do pedido">
-            <div className="space-y-6">
+          <SectionCard eyebrow="Operação" title="Ações do pedido">
+            <div className="flex flex-col gap-6">
               {targets.length > 0 ? (
                 <form
-                  className="grid gap-3 md:grid-cols-[220px_1fr_auto]"
+                  className="grid gap-3 md:grid-cols-[200px_1fr] md:items-start"
                   onSubmit={(event) => {
                     event.preventDefault();
                     if (!statusTarget || statusReason.trim().length < 10) return;
@@ -441,110 +485,78 @@ export function AdminOrderDetail() {
                 >
                   <Field label="Novo status" required>
                     {(fieldId) => (
-                      <Select
-                        id={fieldId}
-                        value={statusTarget}
-                        onChange={(event) => setStatusTarget(event.target.value as OrderStatus | '')}
-                      >
+                      <Select id={fieldId} value={statusTarget} onChange={(e) => setStatusTarget(e.target.value as OrderStatus | '')}>
                         <option value="">Selecione</option>
-                        {targets.map((status) => <option key={status} value={status}>{ORDER_STATUS_LABEL[status]}</option>)}
+                        {targets.map((s) => <option key={s} value={s}>{ORDER_STATUS_LABEL[s]}</option>)}
                       </Select>
                     )}
                   </Field>
-                  <Field label="Motivo operacional" hint="Mínimo de 10 caracteres. Esse texto entra no histórico do pedido." required>
-                    {(fieldId, describedBy) => (
-                      <Textarea
-                        id={fieldId}
-                        aria-describedby={describedBy}
-                        rows={3}
-                        value={statusReason}
-                        onChange={(event) => setStatusReason(event.target.value)}
-                        placeholder="Ex.: Pedido conferido e liberado para separação."
-                      />
-                    )}
-                  </Field>
-                  <Button
-                    type="submit"
-                    className="self-end"
-                    loading={updateStatus.isPending}
-                    disabled={!statusTarget || statusReason.trim().length < 10}
-                  >
-                    Salvar status
-                  </Button>
+                  <div className="flex flex-col gap-3">
+                    <Field label="Motivo operacional" hint="Mínimo de 10 caracteres. Entra no histórico do pedido." required>
+                      {(fieldId, describedBy) => (
+                        <Textarea
+                          id={fieldId}
+                          aria-describedby={describedBy}
+                          rows={3}
+                          value={statusReason}
+                          onChange={(e) => setStatusReason(e.target.value)}
+                          placeholder="Ex.: Pedido conferido e liberado para separação."
+                        />
+                      )}
+                    </Field>
+                    <div className="flex justify-end">
+                      <Button type="submit" loading={updateStatus.isPending} disabled={!statusTarget || statusReason.trim().length < 10}>
+                        <CheckCircle size={16} /> Salvar status
+                      </Button>
+                    </div>
+                  </div>
                 </form>
               ) : (
-                <p className="text-sm text-graphite-soft">
-                  Não há avanço operacional manual disponível para o status atual. Status financeiro é controlado por pagamento/webhook.
-                </p>
+                <Banner tone="info">
+                  Não há avanço operacional manual para o status atual. O status financeiro é controlado por pagamento/webhook.
+                </Banner>
               )}
 
               {showShipmentForm && (
                 <form
-                  className="rounded-[var(--radius-md)] border border-border bg-cream-light/35 p-4"
+                  className="rounded-[var(--radius-md)] border border-border bg-cream-lighter/40 p-4"
                   onSubmit={(event) => {
                     event.preventDefault();
                     if (!shipmentReady) return;
                     shipmentMutation.mutate();
                   }}
                 >
-                  <div className="grid gap-3 md:grid-cols-2">
+                  <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-graphite">
+                    <Truck size={17} className="text-terracotta" /> {shipmentButtonLabel}
+                  </div>
+                  <div className="grid gap-3 sm:grid-cols-2">
                     <Field label="Transportadora" required>
                       {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={shipmentForm.carrier}
-                          onChange={(event) => setShipmentForm((current) => ({ ...current, carrier: event.target.value }))}
-                          placeholder="Correios, Melhor Envio..."
-                        />
+                        <Input id={fieldId} value={shipmentForm.carrier} onChange={(e) => setShipmentForm((c) => ({ ...c, carrier: e.target.value }))} placeholder="Correios, Melhor Envio..." />
                       )}
                     </Field>
                     <Field label="Serviço">
                       {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={shipmentForm.service}
-                          onChange={(event) => setShipmentForm((current) => ({ ...current, service: event.target.value }))}
-                          placeholder="PAC, SEDEX, Jadlog..."
-                        />
+                        <Input id={fieldId} value={shipmentForm.service} onChange={(e) => setShipmentForm((c) => ({ ...c, service: e.target.value }))} placeholder="PAC, SEDEX, Jadlog..." />
                       )}
                     </Field>
                     <Field label="Código de rastreio" required>
                       {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          value={shipmentForm.trackingCode}
-                          onChange={(event) => setShipmentForm((current) => ({ ...current, trackingCode: event.target.value }))}
-                          placeholder="BR123456789BR"
-                        />
+                        <Input id={fieldId} value={shipmentForm.trackingCode} onChange={(e) => setShipmentForm((c) => ({ ...c, trackingCode: e.target.value }))} placeholder="BR123456789BR" />
                       )}
                     </Field>
                     <Field label="URL de rastreio">
                       {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="url"
-                          value={shipmentForm.trackingUrl}
-                          onChange={(event) => setShipmentForm((current) => ({ ...current, trackingUrl: event.target.value }))}
-                          placeholder="https://..."
-                        />
+                        <Input id={fieldId} type="url" value={shipmentForm.trackingUrl} onChange={(e) => setShipmentForm((c) => ({ ...c, trackingUrl: e.target.value }))} placeholder="https://..." />
                       )}
                     </Field>
                     <Field label="Data de envio">
                       {(fieldId) => (
-                        <Input
-                          id={fieldId}
-                          type="datetime-local"
-                          value={shipmentForm.shippedAt}
-                          onChange={(event) => setShipmentForm((current) => ({ ...current, shippedAt: event.target.value }))}
-                        />
+                        <Input id={fieldId} type="datetime-local" value={shipmentForm.shippedAt} onChange={(e) => setShipmentForm((c) => ({ ...c, shippedAt: e.target.value }))} />
                       )}
                     </Field>
                     <div className="flex items-end">
-                      <Button
-                        type="submit"
-                        loading={shipmentMutation.isPending}
-                        disabled={!shipmentReady}
-                      >
+                      <Button type="submit" loading={shipmentMutation.isPending} disabled={!shipmentReady} fullWidth>
                         {shipmentButtonLabel}
                       </Button>
                     </div>
@@ -553,96 +565,56 @@ export function AdminOrderDetail() {
               )}
 
               {canCancelOperationally(order.status) && (
-                <form
-                  className="rounded-[var(--radius-md)] border border-danger/25 bg-danger/5 p-4"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    if (cancelReason.trim().length < 10) return;
-                    cancelOrder.mutate();
-                  }}
-                >
-                  <Field
-                    label="Cancelar pedido"
-                    hint="Exige perfil Admin. O motivo fica registrado na auditoria e reservas/cupom são liberados pelo backend."
-                    required
-                  >
-                    {(fieldId, describedBy) => (
-                      <Textarea
-                        id={fieldId}
-                        aria-describedby={describedBy}
-                        rows={3}
-                        value={cancelReason}
-                        onChange={(event) => setCancelReason(event.target.value)}
-                        placeholder="Ex.: Cliente solicitou cancelamento antes da confirmação de pagamento."
-                      />
-                    )}
-                  </Field>
-                  <Button
-                    type="submit"
-                    variant="danger"
-                    className="mt-3"
-                    loading={cancelOrder.isPending}
-                    disabled={cancelReason.trim().length < 10}
-                  >
-                    Cancelar pedido
-                  </Button>
-                </form>
+                <div className="flex items-center justify-between gap-3 rounded-[var(--radius-md)] border border-danger/25 bg-danger-soft/40 px-4 py-3">
+                  <div>
+                    <p className="text-sm font-semibold text-graphite">Cancelar pedido</p>
+                    <p className="text-xs text-graphite-soft">Disponível enquanto aguarda pagamento. Libera reservas e cupom.</p>
+                  </div>
+                  <Button variant="danger" size="sm" onClick={() => setCancelOpen(true)}>Cancelar pedido</Button>
+                </div>
               )}
-            </div>
-            <p className="mt-4 text-xs text-graphite-soft">
-              Toda alteração é validada pela API e registrada no histórico do pedido. Reembolso/estorno financeiro ficará na fase de pagamentos.
-            </p>
-          </Panel>
 
-          <Panel title="Prévia fiscal">
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => void fiscalPreview.refetch()}
-                loading={fiscalPreview.isFetching}
-              >
-                <FileText size={16} /> Consultar
-              </Button>
-              <Button
-                size="sm"
-                onClick={() => generateFiscalPreview.mutate()}
-                loading={generateFiscalPreview.isPending}
-              >
-                <FileText size={16} /> Gerar prévia
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={() => downloadFiscalXml.mutate()}
-                loading={downloadFiscalXml.isPending}
-              >
+              <p className="text-xs text-graphite-soft">
+                Toda alteração é validada pela API e registrada no histórico. Reembolso/estorno financeiro fica na fase de pagamentos.
+              </p>
+            </div>
+          </SectionCard>
+
+          <SectionCard
+            eyebrow="Fiscal"
+            title="Prévia fiscal"
+            action={
+              <div className="flex flex-wrap gap-2">
+                <Button size="sm" variant="outline" onClick={() => void fiscalPreview.refetch()} loading={fiscalPreview.isFetching}>
+                  <FileText size={16} /> Consultar
+                </Button>
+                <Button size="sm" onClick={() => generateFiscalPreview.mutate()} loading={generateFiscalPreview.isPending}>
+                  <FileText size={16} /> Gerar prévia
+                </Button>
+              </div>
+            }
+          >
+            <div className="mb-4 flex flex-wrap gap-2">
+              <Button size="sm" variant="outline" onClick={() => downloadFiscalXml.mutate()} loading={downloadFiscalXml.isPending}>
                 <DownloadSimple size={16} /> XML rascunho
               </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => preview && printFiscalPreview(preview)}
-                disabled={!preview}
-              >
+              <Button size="sm" variant="ghost" onClick={() => preview && printFiscalPreview(preview)} disabled={!preview}>
                 <Printer size={16} /> Imprimir
               </Button>
             </div>
 
             {!preview ? (
-              <p className="mt-4 text-sm text-graphite-soft">
-                Gere ou consulte uma prévia para conferir dados do destinatário, itens, totais e pendências fiscais antes da emissão real.
+              <p className="text-sm text-graphite-soft">
+                Gere ou consulte uma prévia para conferir destinatário, itens, totais e pendências fiscais antes da emissão real.
               </p>
             ) : (
-              <div className="mt-5 space-y-5">
+              <div className="flex flex-col gap-5">
                 <div className="flex flex-wrap items-center gap-2 text-sm">
-                  <span className="rounded-full border border-warning/40 bg-warning/10 px-3 py-1 font-medium text-warning">
-                    {preview.marker}
-                  </span>
+                  <StatusBadge tone="warning">{preview.marker}</StatusBadge>
                   <span className="text-graphite-soft">Gerada em {new Date(preview.generatedAt).toLocaleString('pt-BR')}</span>
                 </div>
 
-                <dl className="grid gap-3 text-sm sm:grid-cols-[140px_1fr]">
+                <dl className="grid gap-2 text-sm sm:grid-cols-[130px_1fr]">
                   <dt className="font-medium text-graphite-soft">Cliente</dt>
                   <dd className="text-graphite">{preview.customerName}</dd>
                   <dt className="font-medium text-graphite-soft">CPF</dt>
@@ -652,60 +624,58 @@ export function AdminOrderDetail() {
                 </dl>
 
                 {preview.pendingIssues.length > 0 ? (
-                  <div className="border-l-4 border-warning pl-4">
-                    <div className="flex items-center gap-2 font-medium text-warning">
-                      <WarningCircle size={18} /> Pendências antes da emissão real
-                    </div>
-                    <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-graphite-soft">
+                  <Banner tone="warning" title="Pendências antes da emissão real">
+                    <ul className="mt-1 list-disc space-y-1 pl-5">
                       {preview.pendingIssues.map((issue) => <li key={issue}>{issue}</li>)}
                     </ul>
-                  </div>
+                  </Banner>
                 ) : (
-                  <p className="text-sm font-medium text-success">Nenhuma pendência encontrada para esta prévia.</p>
+                  <Banner tone="success">Nenhuma pendência encontrada para esta prévia.</Banner>
                 )}
 
-                <AdminTable<FiscalPreview['items'][number]>
-                  rowKey={(item) => item.sku}
-                  rows={preview.items}
+                <DataTable<FiscalPreview['items'][number]>
                   columns={[
                     { key: 'description', header: 'Produto', render: (item) => item.description },
                     { key: 'sku', header: 'SKU', render: (item) => <span className="font-mono text-xs">{item.sku}</span> },
-                    { key: 'qty', header: 'Qtd', render: (item) => item.quantity },
-                    { key: 'unit', header: 'Unitário', render: (item) => formatPrice(item.unitPriceCents) },
-                    { key: 'total', header: 'Total', render: (item) => formatPrice(item.totalCents) },
+                    { key: 'qty', header: 'Qtd', align: 'center', render: (item) => item.quantity },
+                    { key: 'unit', header: 'Unitário', align: 'right', render: (item) => formatPrice(item.unitPriceCents) },
+                    { key: 'total', header: 'Total', align: 'right', render: (item) => formatPrice(item.totalCents) },
                   ]}
+                  rows={preview.items}
+                  rowKey={(item) => item.sku}
+                  minWidth={520}
                 />
               </div>
             )}
-          </Panel>
+          </SectionCard>
         </div>
 
-        <div className="flex flex-col gap-6">
-          <Panel title="Cliente e entrega">
+        <div className="flex min-w-0 flex-col gap-6">
+          <SectionCard eyebrow="Entrega" title="Cliente e endereço">
             <p className="font-medium text-graphite">{order.shippingAddress.recipient}</p>
             <p className="mt-1 text-sm text-graphite-soft">{order.shippingAddress.street}, {order.shippingAddress.number}</p>
-            <p className="text-sm text-graphite-soft">{order.shippingAddress.district} - {order.shippingAddress.city}/{order.shippingAddress.state}</p>
+            <p className="text-sm text-graphite-soft">{order.shippingAddress.district} — {order.shippingAddress.city}/{order.shippingAddress.state}</p>
             <p className="text-sm text-graphite-soft">{formatZip(order.shippingAddress.zip)}</p>
-            <p className="mt-3 text-sm text-graphite">{order.shipping.carrier} · {order.shipping.service}</p>
-            {order.tracking && <p className="text-xs text-graphite-soft">Rastreio: <span className="font-mono">{order.tracking.code}</span></p>}
-          </Panel>
+            <p className="mt-3 text-sm font-medium text-graphite">{order.shipping.carrier} · {order.shipping.service}</p>
+            {order.tracking && <p className="mt-0.5 text-xs text-graphite-soft">Rastreio: <span className="font-mono">{order.tracking.code}</span></p>}
+          </SectionCard>
 
-          <Panel title="Resumo">
+          <SectionCard eyebrow="Financeiro" title="Resumo">
             <dl className="flex flex-col gap-2 text-sm">
-              <div className="flex justify-between"><dt className="text-graphite-soft">Subtotal</dt><dd>{formatPrice(order.subtotalCents)}</dd></div>
-              {order.discountCents > 0 && <div className="flex justify-between"><dt className="text-graphite-soft">Desconto</dt><dd className="text-success">- {formatPrice(order.discountCents)}</dd></div>}
-              <div className="flex justify-between"><dt className="text-graphite-soft">Frete</dt><dd>{formatPrice(order.shippingCents)}</dd></div>
-              <div className="flex justify-between border-t border-border pt-2 font-medium"><dt>Total</dt><dd>{formatPrice(order.totalCents)}</dd></div>
+              <div className="flex justify-between"><dt className="text-graphite-soft">Subtotal</dt><dd className="tabular-nums">{formatPrice(order.subtotalCents)}</dd></div>
+              {order.discountCents > 0 && <div className="flex justify-between"><dt className="text-graphite-soft">Desconto</dt><dd className="tabular-nums text-success">− {formatPrice(order.discountCents)}</dd></div>}
+              <div className="flex justify-between"><dt className="text-graphite-soft">Frete</dt><dd className="tabular-nums">{formatPrice(order.shippingCents)}</dd></div>
+              <div className="flex justify-between border-t border-border pt-2 text-base font-semibold"><dt>Total</dt><dd className="tabular-nums">{formatPrice(order.totalCents)}</dd></div>
             </dl>
-          </Panel>
+          </SectionCard>
 
-          <Panel title="Histórico">
+          <SectionCard eyebrow="Auditoria" title="Histórico">
             {historyQuery.isLoading ? (
-              <Skeleton className="h-40 w-full rounded-[var(--radius-lg)]" />
+              <div className="h-32 animate-pulse rounded-[var(--radius-md)] bg-cream-light" />
             ) : historyEvents.length ? (
-              <ol className="space-y-3">
+              <ol className="flex flex-col gap-3">
                 {historyEvents.slice(0, 8).map((event) => (
-                  <li key={event.id} className="border-l-2 border-border pl-3">
+                  <li key={event.id} className="border-l-2 border-terracotta/40 pl-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium text-graphite">{historyStatusLabel(event.status)}</p>
                       <time className="text-xs text-graphite-soft">{new Date(event.createdAt).toLocaleString('pt-BR')}</time>
@@ -720,64 +690,106 @@ export function AdminOrderDetail() {
                 ))}
               </ol>
             ) : (
-              <div className="flex items-start gap-3 text-sm leading-6 text-graphite-soft">
-                <ClockCounterClockwise size={21} className="mt-0.5 text-cinnamon" />
+              <div className="flex items-start gap-3 text-sm text-graphite-soft">
+                <ClockCounterClockwise size={20} className="mt-0.5 shrink-0 text-cinnamon" />
                 <p>Nenhum evento registrado.</p>
               </div>
             )}
-          </Panel>
+          </SectionCard>
 
-          <Panel title="Pagamentos">
+          <SectionCard eyebrow="Financeiro" title="Pagamentos" bodyClassName="p-0">
             {paymentsQuery.isLoading ? (
-              <Skeleton className="h-32 w-full rounded-[var(--radius-lg)]" />
+              <div className="m-5 h-24 animate-pulse rounded-[var(--radius-md)] bg-cream-light" />
             ) : paymentAttempts.length ? (
-              <AdminTable<PaymentAttempt>
-                rowKey={(attempt) => attempt.id}
+              <DataTable<PaymentAttempt>
+                columns={[
+                  { key: 'provider', header: 'Gateway', render: (a) => a.provider },
+                  { key: 'method', header: 'Método', render: (a) => PAYMENT_LABEL[a.method] ?? a.method },
+                  { key: 'status', header: 'Status', render: (a) => <StatusBadge tone={paymentTone(a.status)} size="sm">{a.status}</StatusBadge> },
+                  { key: 'amount', header: 'Valor', align: 'right', render: (a) => formatPrice(a.amountCents) },
+                  { key: 'created', header: 'Criado', render: (a) => formatDateShort(a.createdAt) },
+                ]}
                 rows={paymentAttempts}
-                columns={[
-                  { key: 'provider', header: 'Gateway', render: (attempt) => attempt.provider },
-                  { key: 'method', header: 'Método', render: (attempt) => PAYMENT_LABEL[attempt.method] ?? attempt.method },
-                  { key: 'status', header: 'Status', render: (attempt) => <Pill tone={attempt.status === 'Approved' ? 'success' : attempt.status === 'Failed' ? 'danger' : 'warning'}>{attempt.status}</Pill> },
-                  { key: 'amount', header: 'Valor', render: (attempt) => formatPrice(attempt.amountCents) },
-                  { key: 'created', header: 'Criado', render: (attempt) => formatDateShort(attempt.createdAt) },
-                ]}
+                rowKey={(a) => a.id}
+                className="rounded-none border-0 shadow-none"
+                minWidth={520}
               />
             ) : (
-              <p className="text-sm text-graphite-soft">Nenhuma tentativa de pagamento registrada.</p>
+              <p className="px-5 py-6 text-sm text-graphite-soft">Nenhuma tentativa de pagamento registrada.</p>
             )}
-          </Panel>
+          </SectionCard>
 
-          <Panel title="Webhooks">
+          <SectionCard eyebrow="Integrações" title="Webhooks" bodyClassName="p-0">
             {webhookEventsQuery.isLoading ? (
-              <Skeleton className="h-32 w-full rounded-[var(--radius-lg)]" />
+              <div className="m-5 h-24 animate-pulse rounded-[var(--radius-md)] bg-cream-light" />
             ) : webhookEvents.length ? (
-              <AdminTable<WebhookEvent>
-                rowKey={(event) => event.id}
-                rows={webhookEvents}
+              <DataTable<WebhookEvent>
                 columns={[
-                  { key: 'provider', header: 'Gateway', render: (event) => event.provider },
-                  { key: 'external', header: 'Evento', render: (event) => event.externalEventId ?? '-' },
-                  { key: 'status', header: 'Status', render: (event) => <Pill tone={event.status === 'Processed' ? 'success' : event.status === 'Failed' ? 'danger' : 'warning'}>{event.status}</Pill> },
-                  { key: 'hash', header: 'Hash', render: (event) => <span className="font-mono text-xs">{event.payloadHash.slice(0, 12)}</span> },
-                  { key: 'received', header: 'Recebido', render: (event) => formatDateShort(event.receivedAt) },
+                  { key: 'provider', header: 'Gateway', render: (e) => e.provider },
+                  { key: 'external', header: 'Evento', render: (e) => e.externalEventId ?? '—' },
+                  { key: 'status', header: 'Status', render: (e) => <StatusBadge tone={webhookTone(e.status)} size="sm">{e.status}</StatusBadge> },
+                  { key: 'hash', header: 'Hash', render: (e) => <span className="font-mono text-xs">{e.payloadHash.slice(0, 12)}</span> },
+                  { key: 'received', header: 'Recebido', render: (e) => formatDateShort(e.receivedAt) },
                 ]}
+                rows={webhookEvents}
+                rowKey={(e) => e.id}
+                className="rounded-none border-0 shadow-none"
+                minWidth={560}
               />
             ) : (
-              <p className="text-sm text-graphite-soft">Nenhum webhook vinculado a este pedido.</p>
+              <p className="px-5 py-6 text-sm text-graphite-soft">Nenhum webhook vinculado a este pedido.</p>
             )}
-          </Panel>
+          </SectionCard>
 
-          <Panel title="Nota fiscal">
+          <SectionCard eyebrow="Documento" title="Nota fiscal">
             {order.fiscal?.status === 'issued' ? (
               <div className="flex gap-2"><Button size="sm" variant="outline">PDF</Button><Button size="sm" variant="outline">XML</Button></div>
             ) : order.fiscal?.status === 'rejected' ? (
-              <p className="text-sm text-danger">Rejeitada: {order.fiscal.rejectionReason}. <button className="underline">Reprocessar</button></p>
+              <Banner tone="danger" title="Nota rejeitada">
+                {order.fiscal.rejectionReason}. <button className="font-medium underline">Reprocessar</button>
+              </Banner>
             ) : (
-              <p className="text-sm text-warning">Em processamento na SEFAZ...</p>
+              <Banner tone="warning">Em processamento na SEFAZ…</Banner>
             )}
-          </Panel>
+          </SectionCard>
         </div>
       </div>
+
+      {/* Modal: cancelar pedido */}
+      <Modal
+        open={cancelOpen}
+        onClose={() => !cancelOrder.isPending && setCancelOpen(false)}
+        size="md"
+        title="Cancelar pedido"
+        description={`Pedido ${order.number} · aguardando pagamento`}
+        footer={
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setCancelOpen(false)} disabled={cancelOrder.isPending}>Voltar</Button>
+            <Button variant="danger" size="sm" loading={cancelOrder.isPending} disabled={cancelReason.trim().length < 10} onClick={() => cancelOrder.mutate()}>
+              Confirmar cancelamento
+            </Button>
+          </>
+        }
+      >
+        <div className="flex flex-col gap-3">
+          <Banner tone="warning">
+            O cancelamento libera reservas de estoque e o cupom aplicado, e fica registrado na auditoria. Exige perfil Admin.
+          </Banner>
+          <Field label="Motivo do cancelamento" hint="Mínimo de 10 caracteres." required>
+            {(fieldId, describedBy) => (
+              <Textarea
+                id={fieldId}
+                aria-describedby={describedBy}
+                rows={3}
+                value={cancelReason}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Ex.: Cliente solicitou cancelamento antes da confirmação de pagamento."
+                autoFocus
+              />
+            )}
+          </Field>
+        </div>
+      </Modal>
     </div>
   );
 }

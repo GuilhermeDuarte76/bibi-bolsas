@@ -1,64 +1,97 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ClockCounterClockwise, Eye, MagnifyingGlass, PencilSimple, Plus, Star } from '@phosphor-icons/react';
+import {
+  ArrowSquareOut,
+  CheckCircle,
+  ClockCounterClockwise,
+  Eye,
+  FileDashed,
+  Package,
+  PencilSimple,
+  Plus,
+  Star,
+  Warning,
+  X,
+} from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
 import type { AdminInventorySummary, AdminProduct, AdminProductPriceHistory, AdminProductVariant } from '@/types';
-import { PageHeader, AdminTable, Panel } from '@/components/admin/AdminUI';
-import { Button, ButtonLink } from '@/components/ui/Button';
-import { Input, Select } from '@/components/ui/Field';
-import { Pill } from '@/components/ui/Badge';
-import { Skeleton } from '@/components/ui/Skeleton';
-import { toast } from '@/components/ui/Toast';
+import {
+  Button,
+  ButtonLink,
+  DataTable,
+  PageHeader,
+  SearchInput,
+  Select,
+  SectionCard,
+  StatCard,
+  StatusBadge,
+  Toolbar,
+  ToolbarSpacer,
+  Modal,
+  toast,
+  type Column,
+  type SortState,
+  type Tone,
+} from '@/components/admin/ui';
 import { productImage } from '@/lib/images';
 import { formatDateShort, formatPrice } from '@/lib/utils';
 
 const STATUS_OPTIONS = [
-  { value: '', label: 'Todos' },
+  { value: '', label: 'Todos os status' },
   { value: 'Draft', label: 'Rascunho' },
   { value: 'Published', label: 'Publicado' },
   { value: 'Archived', label: 'Arquivado' },
 ];
 
 const STOCK_OPTIONS = [
-  { value: '', label: 'Todos estoques' },
+  { value: '', label: 'Todos os estoques' },
   { value: 'available', label: 'Com estoque' },
   { value: 'low', label: 'Estoque baixo' },
   { value: 'out', label: 'Sem estoque' },
 ];
 
 const FEATURED_OPTIONS = [
-  { value: '', label: 'Todos' },
+  { value: '', label: 'Todos os tipos' },
   { value: 'featured', label: 'Destaques' },
-  { value: 'promotion', label: 'Promoção' },
+  { value: 'promotion', label: 'Em promoção' },
   { value: 'new', label: 'Novidades' },
 ];
 
-function statusPill(status: string) {
-  if (status === 'Published') return <Pill tone="success">Publicado</Pill>;
-  if (status === 'Archived') return <Pill tone="neutral">Arquivado</Pill>;
-  return <Pill tone="warning">Rascunho</Pill>;
+function availableQty(product: AdminProduct) {
+  return product.variants.reduce((sum, variant) => sum + variant.availableQuantity, 0);
 }
 
-function stockPill(product: AdminProduct) {
-  const available = product.variants.reduce((sum, variant) => sum + variant.availableQuantity, 0);
-  const low = product.variants.some((variant) => variant.isLowStock);
-  const tone = available === 0 ? 'danger' : low ? 'warning' : 'success';
+function statusTone(status: string): Tone {
+  if (status === 'Published') return 'success';
+  if (status === 'Archived') return 'neutral';
+  return 'warning';
+}
 
-  return <Pill tone={tone}>{available} disp.</Pill>;
+function statusLabel(status: string) {
+  if (status === 'Published') return 'Publicado';
+  if (status === 'Archived') return 'Arquivado';
+  return 'Rascunho';
+}
+
+function stockTone(product: AdminProduct): Tone {
+  const available = availableQty(product);
+  const low = product.variants.some((v) => v.isLowStock);
+  return available === 0 ? 'danger' : low ? 'warning' : 'success';
 }
 
 function priceFrom(product: AdminProduct) {
   const prices = product.variants
-    .filter((variant) => variant.isActive)
-    .map((variant) => variant.promotionalPriceCents ?? variant.priceCents);
-
+    .filter((v) => v.isActive)
+    .map((v) => v.promotionalPriceCents ?? v.priceCents);
   return prices.length ? Math.min(...prices) : 0;
 }
 
 function productImageUrl(product: AdminProduct) {
-  return product.images.find((image) => image.isMain)?.publicUrl ||
+  return (
+    product.images.find((image) => image.isMain)?.publicUrl ||
     product.images[0]?.publicUrl ||
-    productImage(product.categories[0]?.slug || product.name, product.mainColor || 'terracotta', Number(product.id) || 1);
+    productImage(product.categories[0]?.slug || product.name, product.mainColor || 'terracotta', Number(product.id) || 1)
+  );
 }
 
 export function AdminProducts() {
@@ -68,7 +101,8 @@ export function AdminProducts() {
   const [category, setCategory] = useState('');
   const [stock, setStock] = useState('');
   const [highlight, setHighlight] = useState('');
-  const [selectedProductId, setSelectedProductId] = useState<string | undefined>();
+  const [sort, setSort] = useState<SortState | undefined>();
+  const [detailId, setDetailId] = useState<string | null>(null);
 
   const filters = { search: search.trim() || undefined, status: status || undefined, page: 1, pageSize: 30 };
   const productsQuery = useQuery({
@@ -81,305 +115,581 @@ export function AdminProducts() {
   });
 
   const productStatus = useMutation({
-    mutationFn: (input: { id: string; status: 'Draft' | 'Published' }) => adminService.updateAdminProductStatus(input.id, input.status),
+    mutationFn: (input: { id: string; status: 'Draft' | 'Published' }) =>
+      adminService.updateAdminProductStatus(input.id, input.status),
     onSuccess: (product) => {
-      toast.success(product.status === 'Published' ? 'Produto publicado.' : 'Produto movido para rascunho.');
+      toast.success(
+        product.status === 'Published'
+          ? { title: 'Produto publicado', description: `“${product.name}” está visível na loja.` }
+          : { title: 'Movido para rascunho', description: `“${product.name}” saiu da loja.` },
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.products });
-      setSelectedProductId(product.id);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Nao foi possivel atualizar o status.'),
+    onError: (error) =>
+      toast.error({
+        title: 'Não foi possível atualizar o status',
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      }),
   });
 
   const productFeatured = useMutation({
-    mutationFn: (input: { id: string; featured: boolean }) => adminService.updateAdminProductFeatured(input.id, input.featured),
+    mutationFn: (input: { id: string; featured: boolean }) =>
+      adminService.updateAdminProductFeatured(input.id, input.featured),
     onSuccess: (product) => {
-      toast.success(product.isFeatured ? 'Produto marcado como destaque.' : 'Produto removido dos destaques.');
+      toast.success(
+        product.isFeatured
+          ? { title: 'Adicionado aos destaques', description: `“${product.name}” aparecerá em destaque.` }
+          : { title: 'Removido dos destaques', description: `“${product.name}” não está mais em destaque.` },
+      );
       queryClient.invalidateQueries({ queryKey: queryKeys.admin.products });
-      setSelectedProductId(product.id);
     },
-    onError: (error) => toast.error(error instanceof Error ? error.message : 'Nao foi possivel atualizar o destaque.'),
+    onError: (error) =>
+      toast.error({
+        title: 'Não foi possível atualizar o destaque',
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      }),
   });
 
   const products = productsQuery.data ?? [];
+
   const categoryOptions = useMemo(() => {
     const byId = new Map<string, { id: string; name: string }>();
-    products.flatMap((product) => product.categories).forEach((item) => byId.set(item.id, { id: item.id, name: item.name }));
+    products.flatMap((p) => p.categories).forEach((item) => byId.set(item.id, { id: item.id, name: item.name }));
     return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
   }, [products]);
-  const filteredProducts = useMemo(() => products.filter((product) => {
-    const available = product.variants.reduce((sum, variant) => sum + variant.availableQuantity, 0);
-    const hasLowStock = product.variants.some((variant) => variant.isLowStock);
 
-    if (category && !product.categories.some((item) => item.id === category)) return false;
-    if (stock === 'available' && available <= 0) return false;
-    if (stock === 'low' && !hasLowStock) return false;
-    if (stock === 'out' && available > 0) return false;
-    if (highlight === 'featured' && !product.isFeatured) return false;
-    if (highlight === 'promotion' && !product.isPromotion) return false;
-    if (highlight === 'new' && !product.isNewArrival) return false;
-    return true;
-  }), [category, highlight, products, stock]);
-  const selectedProduct = useMemo(
-    () => filteredProducts.find((product) => product.id === selectedProductId) ?? filteredProducts[0],
-    [filteredProducts, selectedProductId],
+  const filteredProducts = useMemo(
+    () =>
+      products.filter((product) => {
+        const available = availableQty(product);
+        const hasLowStock = product.variants.some((v) => v.isLowStock);
+        if (category && !product.categories.some((item) => item.id === category)) return false;
+        if (stock === 'available' && available <= 0) return false;
+        if (stock === 'low' && !hasLowStock) return false;
+        if (stock === 'out' && available > 0) return false;
+        if (highlight === 'featured' && !product.isFeatured) return false;
+        if (highlight === 'promotion' && !product.isPromotion) return false;
+        if (highlight === 'new' && !product.isNewArrival) return false;
+        return true;
+      }),
+    [category, highlight, products, stock],
   );
+
+  const sortedProducts = useMemo(() => {
+    if (!sort) return filteredProducts;
+    const dir = sort.dir === 'asc' ? 1 : -1;
+    const val = (p: AdminProduct): string | number => {
+      switch (sort.key) {
+        case 'name':
+          return p.name.toLowerCase();
+        case 'status':
+          return p.status;
+        case 'price':
+          return priceFrom(p);
+        case 'stock':
+          return availableQty(p);
+        case 'variants':
+          return p.variants.length;
+        default:
+          return 0;
+      }
+    };
+    return [...filteredProducts].sort((a, b) => {
+      const av = val(a);
+      const bv = val(b);
+      return av < bv ? -dir : av > bv ? dir : 0;
+    });
+  }, [filteredProducts, sort]);
+
+  const onSort = (key: string) =>
+    setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: 'asc' }));
+
+  const detailProduct = useMemo(() => products.find((p) => p.id === detailId) ?? null, [products, detailId]);
+
   const priceHistoryQuery = useQuery({
-    queryKey: queryKeys.admin.productPriceHistory(selectedProduct?.id ?? ''),
-    queryFn: () => adminService.listProductPriceHistory(selectedProduct!.id),
-    enabled: !!selectedProduct,
+    queryKey: queryKeys.admin.productPriceHistory(detailId ?? ''),
+    queryFn: () => adminService.listProductPriceHistory(detailId!),
+    enabled: !!detailId,
   });
 
-  const published = filteredProducts.filter((product) => product.status === 'Published').length;
-  const drafts = filteredProducts.filter((product) => product.status === 'Draft').length;
-  const lowStock = filteredProducts.filter((product) => product.variants.some((variant) => variant.isLowStock)).length;
+  const published = filteredProducts.filter((p) => p.status === 'Published').length;
+  const drafts = filteredProducts.filter((p) => p.status === 'Draft').length;
+  const lowStock = filteredProducts.filter((p) => p.variants.some((v) => v.isLowStock)).length;
+
+  const hasFilters = !!(search || status || category || stock || highlight);
+  const clearFilters = () => {
+    setSearch('');
+    setStatus('');
+    setCategory('');
+    setStock('');
+    setHighlight('');
+  };
+
+  const columns: Column<AdminProduct>[] = [
+    {
+      key: 'name',
+      header: 'Produto',
+      sortable: true,
+      render: (product) => (
+        <div className="flex items-center gap-3">
+          <img
+            src={productImageUrl(product)}
+            alt=""
+            className="h-11 w-10 shrink-0 rounded-md border border-border object-cover"
+          />
+          <div className="min-w-0">
+            <p className="truncate font-medium text-graphite">{product.name}</p>
+            <p className="truncate text-xs text-graphite-soft">{product.categories[0]?.name || product.slug}</p>
+          </div>
+        </div>
+      ),
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      sortable: true,
+      render: (product) => (
+        <StatusBadge tone={statusTone(product.status)} dot>
+          {statusLabel(product.status)}
+        </StatusBadge>
+      ),
+    },
+    {
+      key: 'price',
+      header: 'A partir de',
+      align: 'right',
+      sortable: true,
+      render: (product) => <span className="font-medium tabular-nums">{formatPrice(priceFrom(product))}</span>,
+    },
+    {
+      key: 'stock',
+      header: 'Estoque',
+      align: 'right',
+      sortable: true,
+      render: (product) => (
+        <StatusBadge tone={stockTone(product)} size="sm">
+          {availableQty(product)} un.
+        </StatusBadge>
+      ),
+    },
+    {
+      key: 'variants',
+      header: 'SKUs',
+      align: 'center',
+      sortable: true,
+      render: (product) => <span className="tabular-nums text-graphite-soft">{product.variants.length}</span>,
+    },
+    {
+      key: 'featured',
+      header: 'Destaque',
+      align: 'center',
+      render: (product) =>
+        product.isFeatured ? (
+          <Star size={16} weight="fill" className="mx-auto text-terracotta" aria-label="Destaque" />
+        ) : (
+          <span className="text-store-gray">—</span>
+        ),
+    },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      width: '150px',
+      render: (product) => (
+        <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() => setDetailId(product.id)}
+            title="Ver detalhe"
+            aria-label="Ver detalhe"
+            className="tactile rounded-md p-2 text-graphite-soft opacity-0 transition-opacity hover:bg-cream-light hover:text-graphite group-hover:opacity-100"
+          >
+            <Eye size={16} />
+          </button>
+          {product.status !== 'Archived' && (
+            <Button
+              size="sm"
+              variant="ghost"
+              loading={productStatus.isPending && productStatus.variables?.id === product.id}
+              onClick={() =>
+                productStatus.mutate({
+                  id: product.id,
+                  status: product.status === 'Published' ? 'Draft' : 'Published',
+                })
+              }
+            >
+              {product.status === 'Published' ? 'Despublicar' : 'Publicar'}
+            </Button>
+          )}
+          <ButtonLink size="sm" variant="outline" to={`/admin/produtos/${product.id}`} aria-label="Editar">
+            <PencilSimple size={15} /> Editar
+          </ButtonLink>
+        </div>
+      ),
+    },
+  ];
 
   return (
     <div>
       <PageHeader
+        breadcrumbs={[{ label: 'Catálogo' }, { label: 'Produtos' }]}
+        eyebrow="Catálogo"
         title="Produtos"
-        subtitle="Catálogo administrativo com status, destaque, variações e estoque."
-        action={<ButtonLink to="/admin/produtos/novo"><Plus size={17} /> Novo produto</ButtonLink>}
+        subtitle="Gerencie status, destaque, variações e estoque do catálogo."
+        action={
+          <ButtonLink to="/admin/produtos/novo">
+            <Plus size={17} weight="bold" /> Novo produto
+          </ButtonLink>
+        }
       />
 
-      <div className="mb-6 grid gap-4 md:grid-cols-4">
-        <Panel>
-          <p className="text-sm text-graphite-soft">Neste filtro</p>
-          <p className="mt-2 text-2xl font-semibold text-graphite">{filteredProducts.length}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Publicados</p>
-          <p className="mt-2 text-2xl font-semibold text-success">{published}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Rascunhos</p>
-          <p className="mt-2 text-2xl font-semibold text-warning">{drafts}</p>
-        </Panel>
-        <Panel>
-          <p className="text-sm text-graphite-soft">Estoque baixo</p>
-          <p className="mt-2 text-2xl font-semibold text-danger">{lowStock}</p>
-        </Panel>
+      {/* Métricas */}
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <StatCard label="Produtos no filtro" value={filteredProducts.length} icon={Package} loading={productsQuery.isLoading} />
+        <StatCard
+          label="Publicados"
+          value={<span className="text-success">{published}</span>}
+          icon={CheckCircle}
+          loading={productsQuery.isLoading}
+        />
+        <StatCard
+          label="Rascunhos"
+          value={<span className="text-warning">{drafts}</span>}
+          icon={FileDashed}
+          loading={productsQuery.isLoading}
+        />
+        <StatCard
+          label="Com estoque baixo"
+          value={<span className={lowStock ? 'text-danger' : undefined}>{lowStock}</span>}
+          icon={Warning}
+          loading={productsQuery.isLoading}
+        />
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
-        <Panel title="Catálogo">
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px_170px_160px]">
-            <div className="relative">
-              <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-store-gray" />
-              <Input
-                placeholder="Buscar produto, slug ou SKU"
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                className="pl-10"
-                aria-label="Buscar produto"
-              />
+      <div className="grid gap-6 2xl:grid-cols-[minmax(0,1fr)_340px]">
+        {/* Catálogo */}
+        <SectionCard
+          eyebrow="Catálogo"
+          title="Todos os produtos"
+          description={`${filteredProducts.length} ${filteredProducts.length === 1 ? 'produto' : 'produtos'} no filtro atual.`}
+          bodyClassName="flex flex-col gap-4"
+        >
+          <Toolbar>
+            <SearchInput value={search} onChange={setSearch} placeholder="Buscar por nome, slug ou SKU" />
+            <Select aria-label="Filtrar status" value={status} onChange={(e) => setStatus(e.target.value)} className="sm:w-auto">
+              {STATUS_OPTIONS.map((o) => (
+                <option key={o.value || 'all'} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label="Filtrar categoria" value={category} onChange={(e) => setCategory(e.target.value)} className="sm:w-auto">
+              <option value="">Todas as categorias</option>
+              {categoryOptions.map((o) => (
+                <option key={o.id} value={o.id}>
+                  {o.name}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label="Filtrar estoque" value={stock} onChange={(e) => setStock(e.target.value)} className="sm:w-auto">
+              {STOCK_OPTIONS.map((o) => (
+                <option key={o.value || 'all'} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            <Select aria-label="Filtrar tipo" value={highlight} onChange={(e) => setHighlight(e.target.value)} className="sm:w-auto">
+              {FEATURED_OPTIONS.map((o) => (
+                <option key={o.value || 'all'} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </Select>
+            {hasFilters && (
+              <>
+                <ToolbarSpacer />
+                <Button variant="ghost" size="sm" onClick={clearFilters}>
+                  <X size={15} /> Limpar filtros
+                </Button>
+              </>
+            )}
+          </Toolbar>
+
+          <DataTable<AdminProduct>
+            columns={columns}
+            rows={sortedProducts}
+            rowKey={(p) => p.id}
+            loading={productsQuery.isLoading}
+            onRowClick={(p) => setDetailId(p.id)}
+            sort={sort}
+            onSort={onSort}
+            minWidth={860}
+            empty={{
+              icon: Package,
+              title: hasFilters ? 'Nenhum produto neste filtro' : 'Nenhum produto cadastrado',
+              description: hasFilters
+                ? 'Ajuste ou limpe os filtros para ver mais resultados.'
+                : 'Cadastre o primeiro produto do catálogo.',
+              action: hasFilters ? (
+                <Button variant="outline" size="sm" onClick={clearFilters}>
+                  Limpar filtros
+                </Button>
+              ) : (
+                <ButtonLink size="sm" to="/admin/produtos/novo">
+                  <Plus size={16} /> Novo produto
+                </ButtonLink>
+              ),
+            }}
+          />
+        </SectionCard>
+
+        {/* Estoque baixo */}
+        <SectionCard
+          eyebrow="Alerta"
+          title="Estoque baixo"
+          action={
+            <ButtonLink size="sm" variant="ghost" to="/admin/estoque">
+              Ver estoque
+            </ButtonLink>
+          }
+          bodyClassName="p-0"
+        >
+          {inventoryQuery.isLoading ? (
+            <div className="space-y-3 px-5 py-5 sm:px-6">
+              {Array.from({ length: 4 }).map((_, i) => (
+                <div key={i} className="h-12 animate-pulse rounded-md bg-cream-light" />
+              ))}
             </div>
-            <Select aria-label="Filtrar status" value={status} onChange={(event) => setStatus(event.target.value)}>
-              {STATUS_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
-            </Select>
-            <Select aria-label="Filtrar categoria" value={category} onChange={(event) => setCategory(event.target.value)}>
-              <option value="">Todas categorias</option>
-              {categoryOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
-            </Select>
-            <Select aria-label="Filtrar estoque" value={stock} onChange={(event) => setStock(event.target.value)}>
-              {STOCK_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
-            </Select>
-            <Select aria-label="Filtrar destaque" value={highlight} onChange={(event) => setHighlight(event.target.value)}>
-              {FEATURED_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
-            </Select>
+          ) : (inventoryQuery.data ?? []).length === 0 ? (
+            <div className="flex items-center gap-3 px-5 py-6 text-sm text-graphite-soft sm:px-6">
+              <CheckCircle size={20} weight="fill" className="text-success" />
+              Nenhum SKU em estoque baixo.
+            </div>
+          ) : (
+            <ul className="divide-y divide-border/60">
+              {(inventoryQuery.data ?? []).map((item: AdminInventorySummary) => (
+                <li key={item.variantId} className="flex items-center justify-between gap-3 px-5 py-3 sm:px-6">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium text-graphite">{item.productName}</p>
+                    <p className="truncate font-mono text-xs text-graphite-soft">{item.sku}</p>
+                  </div>
+                  <StatusBadge tone={item.availableQuantity === 0 ? 'danger' : 'warning'} size="sm">
+                    {item.availableQuantity}/{item.minimumStock}
+                  </StatusBadge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* Detalhe do produto */}
+      <ProductDetailModal
+        product={detailProduct}
+        open={!!detailId}
+        onClose={() => setDetailId(null)}
+        priceHistory={priceHistoryQuery.data ?? []}
+        priceHistoryLoading={priceHistoryQuery.isLoading}
+        onToggleStatus={() =>
+          detailProduct &&
+          productStatus.mutate({
+            id: detailProduct.id,
+            status: detailProduct.status === 'Published' ? 'Draft' : 'Published',
+          })
+        }
+        onToggleFeatured={() =>
+          detailProduct && productFeatured.mutate({ id: detailProduct.id, featured: !detailProduct.isFeatured })
+        }
+        statusPending={productStatus.isPending}
+        featuredPending={productFeatured.isPending}
+      />
+    </div>
+  );
+}
+
+function ProductDetailModal({
+  product,
+  open,
+  onClose,
+  priceHistory,
+  priceHistoryLoading,
+  onToggleStatus,
+  onToggleFeatured,
+  statusPending,
+  featuredPending,
+}: {
+  product: AdminProduct | null;
+  open: boolean;
+  onClose: () => void;
+  priceHistory: AdminProductPriceHistory[];
+  priceHistoryLoading: boolean;
+  onToggleStatus: () => void;
+  onToggleFeatured: () => void;
+  statusPending: boolean;
+  featuredPending: boolean;
+}) {
+  const variantColumns: Column<AdminProductVariant>[] = [
+    { key: 'sku', header: 'SKU', render: (v) => <span className="font-mono text-xs">{v.sku}</span> },
+    { key: 'name', header: 'Variação', render: (v) => v.name },
+    {
+      key: 'price',
+      header: 'Preço',
+      align: 'right',
+      render: (v) => <span className="tabular-nums">{formatPrice(v.promotionalPriceCents ?? v.priceCents)}</span>,
+    },
+    {
+      key: 'stock',
+      header: 'Disp.',
+      align: 'right',
+      render: (v) => (
+        <StatusBadge tone={v.availableQuantity === 0 ? 'danger' : v.isLowStock ? 'warning' : 'success'} size="sm">
+          {v.availableQuantity}
+        </StatusBadge>
+      ),
+    },
+  ];
+
+  const historyColumns: Column<AdminProductPriceHistory>[] = [
+    { key: 'sku', header: 'SKU', render: (e) => <span className="font-mono text-xs">{e.sku}</span> },
+    { key: 'price', header: 'Preço', render: (e) => <PriceChange oldValue={e.oldPriceCents} newValue={e.newPriceCents} /> },
+    {
+      key: 'promo',
+      header: 'Promoção',
+      render: (e) => <PriceChange oldValue={e.oldPromotionalPriceCents} newValue={e.newPromotionalPriceCents} empty="—" />,
+    },
+    { key: 'date', header: 'Quando', align: 'right', render: (e) => formatDateShort(e.changedAt) },
+  ];
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      size="xl"
+      title={product?.name ?? 'Produto'}
+      description={product?.slug}
+      footer={
+        product && (
+          <>
+            {product.status !== 'Archived' && (
+              <Button variant="outline" size="sm" loading={statusPending} onClick={onToggleStatus}>
+                {product.status === 'Published' ? 'Mover para rascunho' : 'Publicar'}
+              </Button>
+            )}
+            <Button
+              variant={product.isFeatured ? 'ghost' : 'secondary'}
+              size="sm"
+              loading={featuredPending}
+              disabled={product.status === 'Archived'}
+              onClick={onToggleFeatured}
+            >
+              <Star size={15} weight={product.isFeatured ? 'fill' : 'regular'} />
+              {product.isFeatured ? 'Remover destaque' : 'Destacar'}
+            </Button>
+            <ButtonLink size="sm" to={product ? `/admin/produtos/${product.id}` : '#'}>
+              <PencilSimple size={15} /> Editar produto
+            </ButtonLink>
+          </>
+        )
+      }
+    >
+      {product && (
+        <div className="flex flex-col gap-6">
+          {/* Cabeçalho */}
+          <div className="flex flex-wrap items-start gap-4">
+            <img
+              src={productImageUrl(product)}
+              alt=""
+              className="h-24 w-20 shrink-0 rounded-[var(--radius-md)] border border-border object-cover"
+            />
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <StatusBadge tone={statusTone(product.status)} dot>
+                  {statusLabel(product.status)}
+                </StatusBadge>
+                <StatusBadge tone={product.isAvailable ? 'success' : 'danger'}>
+                  {product.isAvailable ? 'Disponível' : 'Indisponível'}
+                </StatusBadge>
+                {product.isFeatured && (
+                  <StatusBadge tone="brand">
+                    <Star size={12} weight="fill" /> Destaque
+                  </StatusBadge>
+                )}
+                {product.isPromotion && <StatusBadge tone="brand">Promoção</StatusBadge>}
+                {product.isNewArrival && <StatusBadge tone="info">Novidade</StatusBadge>}
+              </div>
+              <a
+                href={`/produto/${product.slug}`}
+                target="_blank"
+                rel="noreferrer"
+                className="mt-3 inline-flex items-center gap-1.5 text-sm font-medium text-terracotta hover:underline"
+              >
+                <ArrowSquareOut size={15} /> Ver na loja
+              </a>
+            </div>
           </div>
 
-          {productsQuery.isLoading ? (
-            <Skeleton className="h-72 w-full rounded-[var(--radius-lg)]" />
-          ) : (
-            <AdminTable<AdminProduct>
-              rowKey={(product) => product.id}
-              rows={filteredProducts}
-              empty="Nenhum produto encontrado."
-              columns={[
-                {
-                  key: 'name',
-                  header: 'Produto',
-                  render: (product) => (
-                    <div className="flex items-center gap-3">
-                      <img src={productImageUrl(product)} alt="" className="h-11 w-10 rounded-md object-cover" />
-                      <div>
-                        <p className="font-medium">{product.name}</p>
-                        <p className="text-xs text-graphite-soft">{product.categories[0]?.name || product.slug}</p>
-                      </div>
-                    </div>
-                  ),
-                },
-                { key: 'status', header: 'Status', render: (product) => statusPill(product.status) },
-                { key: 'price', header: 'A partir de', render: (product) => formatPrice(priceFrom(product)) },
-                { key: 'stock', header: 'Estoque', render: stockPill },
-                { key: 'variants', header: 'SKUs', render: (product) => `${product.variants.length}` },
-                { key: 'featured', header: 'Destaque', render: (product) => product.isFeatured ? <Pill tone="info"><Star size={12} weight="fill" /> Sim</Pill> : '-' },
-                {
-                  key: 'actions',
-                  header: 'Ações',
-                  render: (product) => (
-                    <div className="flex flex-wrap gap-2">
-                      <Button size="sm" variant="outline" onClick={() => setSelectedProductId(product.id)}>
-                        <Eye size={15} /> Detalhe
-                      </Button>
-                      <ButtonLink size="sm" variant="outline" to={`/admin/produtos/${product.id}`}>
-                        <PencilSimple size={15} /> Editar
-                      </ButtonLink>
-                      {product.status !== 'Archived' && (
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          loading={productStatus.isPending}
-                          onClick={() => productStatus.mutate({ id: product.id, status: product.status === 'Published' ? 'Draft' : 'Published' })}
-                        >
-                          {product.status === 'Published' ? 'Rascunho' : 'Publicar'}
-                        </Button>
-                      )}
-                    </div>
-                  ),
-                },
-              ]}
+          {/* Ficha */}
+          <dl className="grid grid-cols-1 gap-x-6 gap-y-0 sm:grid-cols-2">
+            <DetailRow label="Categoria" value={product.categories.map((c) => c.name).join(', ') || '—'} />
+            <DetailRow label="Coleção" value={product.collection || '—'} />
+            <DetailRow label="Material" value={product.mainMaterial || '—'} />
+            <DetailRow label="A partir de" value={formatPrice(priceFrom(product))} />
+            <DetailRow label="Criado em" value={formatDateShort(product.createdAt)} />
+            <DetailRow label="Publicado em" value={product.publishedAt ? formatDateShort(product.publishedAt) : '—'} />
+          </dl>
+
+          {/* Variações */}
+          <section>
+            <h3 className="mb-2.5 text-sm font-semibold text-graphite">Variações e estoque</h3>
+            <DataTable<AdminProductVariant>
+              columns={variantColumns}
+              rows={product.variants}
+              rowKey={(v) => v.id}
+              minWidth={440}
+              empty={{ title: 'Nenhuma variação cadastrada' }}
             />
-          )}
-        </Panel>
+          </section>
 
-        <div className="flex flex-col gap-6">
-          <Panel title={selectedProduct ? 'Detalhe do produto' : 'Produto'}>
-            {productsQuery.isLoading ? (
-              <Skeleton className="h-56 w-full rounded-[var(--radius-lg)]" />
-            ) : selectedProduct ? (
-              <div className="space-y-4">
-                <div className="flex items-start gap-3">
-                  <img src={productImageUrl(selectedProduct)} alt="" className="h-16 w-14 rounded-md object-cover" />
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium text-graphite">{selectedProduct.name}</p>
-                    <p className="break-all text-xs text-graphite-soft">{selectedProduct.slug}</p>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {statusPill(selectedProduct.status)}
-                      {selectedProduct.isAvailable ? <Pill tone="success">Disponível</Pill> : <Pill tone="danger">Indisponível</Pill>}
-                    </div>
-                  </div>
-                </div>
-
-                <div className="grid gap-2 text-sm">
-                  <DetailRow label="Categoria" value={selectedProduct.categories.map((category) => category.name).join(', ') || '-'} />
-                  <DetailRow label="Coleção" value={selectedProduct.collection || '-'} />
-                  <DetailRow label="Material" value={selectedProduct.mainMaterial || '-'} />
-                  <DetailRow label="Criado em" value={formatDateShort(selectedProduct.createdAt)} />
-                  <DetailRow label="Publicado em" value={selectedProduct.publishedAt ? formatDateShort(selectedProduct.publishedAt) : '-'} />
-                </div>
-
-                <div className="flex flex-wrap gap-2">
-                  {selectedProduct.status !== 'Archived' && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      loading={productStatus.isPending}
-                      onClick={() => productStatus.mutate({ id: selectedProduct.id, status: selectedProduct.status === 'Published' ? 'Draft' : 'Published' })}
-                    >
-                      {selectedProduct.status === 'Published' ? 'Mover para rascunho' : 'Publicar'}
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={selectedProduct.isFeatured ? 'ghost' : 'outline'}
-                    loading={productFeatured.isPending}
-                    disabled={selectedProduct.status === 'Archived'}
-                    onClick={() => productFeatured.mutate({ id: selectedProduct.id, featured: !selectedProduct.isFeatured })}
-                  >
-                    {selectedProduct.isFeatured ? 'Remover destaque' : 'Destacar'}
-                  </Button>
-                </div>
-              </div>
-            ) : (
-              <p className="text-sm text-graphite-soft">Selecione um produto para ver detalhes.</p>
-            )}
-          </Panel>
-
-          <Panel title="Variações e estoque">
-            {selectedProduct ? (
-              <AdminTable<AdminProductVariant>
-                rowKey={(variant) => variant.id}
-                rows={selectedProduct.variants}
-                empty="Nenhuma variação cadastrada."
-                columns={[
-                  { key: 'sku', header: 'SKU', render: (variant) => <span className="font-mono text-xs">{variant.sku}</span> },
-                  { key: 'name', header: 'Variação', render: (variant) => variant.name },
-                  { key: 'price', header: 'Preço', render: (variant) => formatPrice(variant.promotionalPriceCents ?? variant.priceCents) },
-                  { key: 'stock', header: 'Disp.', render: (variant) => <Pill tone={variant.availableQuantity === 0 ? 'danger' : variant.isLowStock ? 'warning' : 'success'}>{variant.availableQuantity}</Pill> },
-                ]}
+          {/* Histórico de preço */}
+          <section>
+            <h3 className="mb-2.5 text-sm font-semibold text-graphite">Histórico de preço</h3>
+            {priceHistoryLoading ? (
+              <div className="h-24 animate-pulse rounded-[var(--radius-lg)] bg-cream-light" />
+            ) : priceHistory.length ? (
+              <DataTable<AdminProductPriceHistory>
+                columns={historyColumns}
+                rows={priceHistory.slice(0, 8)}
+                rowKey={(e) => e.id}
+                minWidth={440}
               />
             ) : (
-              <p className="text-sm text-graphite-soft">Selecione um produto para ver SKUs.</p>
-            )}
-          </Panel>
-
-          <Panel title="Histórico de preço">
-            {!selectedProduct ? (
-              <p className="text-sm text-graphite-soft">Selecione um produto para consultar alterações de preço.</p>
-            ) : priceHistoryQuery.isLoading ? (
-              <Skeleton className="h-44 w-full rounded-[var(--radius-lg)]" />
-            ) : priceHistoryQuery.data?.length ? (
-              <AdminTable<AdminProductPriceHistory>
-                rowKey={(entry) => entry.id}
-                rows={priceHistoryQuery.data.slice(0, 8)}
-                columns={[
-                  { key: 'sku', header: 'SKU', render: (entry) => <span className="font-mono text-xs">{entry.sku}</span> },
-                  { key: 'price', header: 'Preço', render: (entry) => <PriceChange oldValue={entry.oldPriceCents} newValue={entry.newPriceCents} /> },
-                  { key: 'promo', header: 'Promoção', render: (entry) => <PriceChange oldValue={entry.oldPromotionalPriceCents} newValue={entry.newPromotionalPriceCents} empty="-" /> },
-                  { key: 'user', header: 'Usuário', render: (entry) => entry.changedByUserId ? `#${entry.changedByUserId}` : 'Sistema' },
-                  { key: 'date', header: 'Quando', render: (entry) => formatDateShort(entry.changedAt) },
-                ]}
-              />
-            ) : (
-              <div className="flex items-start gap-3 text-sm leading-6 text-graphite-soft">
-                <ClockCounterClockwise size={21} className="mt-0.5 text-cinnamon" />
-                <p>Nenhuma alteração de preço registrada para este produto.</p>
+              <div className="flex items-center gap-3 rounded-[var(--radius-md)] border border-border bg-cream-lighter px-4 py-4 text-sm text-graphite-soft">
+                <ClockCounterClockwise size={20} className="shrink-0 text-cinnamon" />
+                Nenhuma alteração de preço registrada para este produto.
               </div>
             )}
-          </Panel>
-
-          <Panel title="SKUs com estoque baixo" action={<ButtonLink size="sm" variant="ghost" to="/admin/estoque">Ver estoque</ButtonLink>}>
-            {inventoryQuery.isLoading ? (
-              <Skeleton className="h-40 w-full rounded-[var(--radius-lg)]" />
-            ) : (
-              <div className="space-y-3">
-                {(inventoryQuery.data ?? []).map((item: AdminInventorySummary) => (
-                  <div key={item.variantId} className="flex items-center justify-between gap-3 border-b border-border/60 pb-3 last:border-0 last:pb-0">
-                    <div>
-                      <p className="text-sm font-medium text-graphite">{item.productName}</p>
-                      <p className="font-mono text-xs text-graphite-soft">{item.sku}</p>
-                    </div>
-                    <Pill tone={item.availableQuantity === 0 ? 'danger' : 'warning'}>{item.availableQuantity}/{item.minimumStock}</Pill>
-                  </div>
-                ))}
-                {(inventoryQuery.data ?? []).length === 0 && <p className="text-sm text-graphite-soft">Nenhum SKU em estoque baixo.</p>}
-              </div>
-            )}
-          </Panel>
+          </section>
         </div>
-      </div>
-    </div>
+      )}
+    </Modal>
   );
 }
 
 function PriceChange({ oldValue, newValue, empty = 'Sem valor' }: { oldValue?: number; newValue?: number; empty?: string }) {
   if (oldValue == null && newValue == null) return <span className="text-graphite-soft">{empty}</span>;
-
   return (
-    <span className="text-sm">
-      <span className="text-graphite-soft">{oldValue != null ? formatPrice(oldValue) : '-'}</span>
+    <span className="text-sm tabular-nums">
+      <span className="text-graphite-soft">{oldValue != null ? formatPrice(oldValue) : '—'}</span>
       <span className="mx-1 text-store-gray">→</span>
-      <strong className="font-medium text-graphite">{newValue != null ? formatPrice(newValue) : '-'}</strong>
+      <strong className="font-medium text-graphite">{newValue != null ? formatPrice(newValue) : '—'}</strong>
     </span>
   );
 }
 
 function DetailRow({ label, value }: { label: string; value: string }) {
   return (
-    <div className="flex justify-between gap-4 border-b border-border/60 py-2 last:border-0">
-      <span className="text-graphite-soft">{label}</span>
-      <span className="text-right font-medium text-graphite">{value}</span>
+    <div className="flex justify-between gap-4 border-b border-border/60 py-2.5">
+      <dt className="text-sm text-graphite-soft">{label}</dt>
+      <dd className="text-right text-sm font-medium text-graphite">{value}</dd>
     </div>
   );
 }
