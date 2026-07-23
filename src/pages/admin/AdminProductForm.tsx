@@ -36,6 +36,7 @@ type VariantForm = AdminProductVariantInput & {
 type ImageForm = AdminProductImageInput & {
   localId: string;
   existing: boolean;
+  variantLocalId?: string;
   original: {
     productVariantId?: string;
     storageKey: string;
@@ -44,6 +45,17 @@ type ImageForm = AdminProductImageInput & {
     sortOrder: number;
     isMain: boolean;
   };
+};
+
+type ImageScopeOption = {
+  key: string;
+  label: string;
+  shortLabel: string;
+  meta?: string;
+  productVariantId?: string;
+  variantLocalId?: string;
+  colorHex?: string;
+  isPersisted: boolean;
 };
 
 type ProductFormState = Omit<AdminProductInput, 'variants'>;
@@ -55,6 +67,7 @@ const STATUS_OPTIONS = [
 
 const IMAGE_UPLOAD_ACCEPT = 'image/jpeg,image/png,image/webp,image/gif';
 const IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024;
+const IMAGE_SCOPE_GENERAL = 'general';
 
 const DEFAULT_FORM: ProductFormState = {
   name: '',
@@ -114,6 +127,10 @@ function inputToNumber(value: string, fallback = 0) {
   return Number.isFinite(parsed) ? parsed : fallback;
 }
 
+function normalizeSku(value?: string) {
+  return value?.trim().toUpperCase() ?? '';
+}
+
 function emptyVariant(isDefault = false): VariantForm {
   return {
     localId: newLocalId('variant'),
@@ -166,6 +183,33 @@ function variantImageLabel(variant: VariantForm) {
   return details ? `${variant.sku.trim() || 'SKU'} - ${title} (${details})` : `${variant.sku.trim() || 'SKU'} - ${title}`;
 }
 
+function variantShortLabel(variant: VariantForm, index: number) {
+  return normalizeSku(variant.sku) || `SKU ${index + 1}`;
+}
+
+function imageScopeKey(image: ImageForm, variants: VariantForm[]) {
+  if (image.variantLocalId) return image.variantLocalId;
+  if (image.productVariantId) {
+    return variants.find((variant) => variant.id === image.productVariantId)?.localId ?? IMAGE_SCOPE_GENERAL;
+  }
+
+  return IMAGE_SCOPE_GENERAL;
+}
+
+function imageScopePatch(option?: ImageScopeOption): Pick<ImageForm, 'productVariantId' | 'variantLocalId'> {
+  if (!option || option.key === IMAGE_SCOPE_GENERAL) {
+    return {
+      productVariantId: undefined,
+      variantLocalId: undefined,
+    };
+  }
+
+  return {
+    productVariantId: option.productVariantId,
+    variantLocalId: option.variantLocalId,
+  };
+}
+
 function variantFromProduct(product: AdminProduct): VariantForm[] {
   if (product.variants.length === 0) return [emptyVariant(true)];
 
@@ -196,8 +240,9 @@ function variantFromProduct(product: AdminProduct): VariantForm[] {
   }));
 }
 
-function imageFromProduct(image: AdminProductImage): ImageForm {
+function imageFromProduct(image: AdminProductImage, variants: VariantForm[]): ImageForm {
   const storageKey = storageKeyFromUrl(image.publicUrl);
+  const variantLocalId = variants.find((variant) => variant.id === image.productVariantId)?.localId;
   const snapshot = {
     productVariantId: image.productVariantId,
     storageKey,
@@ -212,6 +257,7 @@ function imageFromProduct(image: AdminProductImage): ImageForm {
     existing: true,
     id: image.id,
     productVariantId: image.productVariantId,
+    variantLocalId,
     storageKey,
     publicUrl: image.publicUrl,
     altText: image.altText ?? '',
@@ -269,34 +315,39 @@ function cleanVariant(variant: VariantForm): AdminProductVariantInput {
   };
 }
 
-function cleanImage(image: ImageForm, index: number, hasMain: boolean): AdminProductImageInput {
+function cleanImage(
+  image: ImageForm,
+  index: number,
+  isMain: boolean,
+  productVariantId?: string,
+): AdminProductImageInput {
   const publicUrl = image.publicUrl.trim();
   return {
     id: image.id,
-    productVariantId: image.productVariantId,
+    productVariantId,
     storageKey: image.storageKey.trim() || storageKeyFromUrl(publicUrl),
     publicUrl,
     altText: image.altText?.trim() || undefined,
     sortOrder: Number.isFinite(image.sortOrder) ? image.sortOrder : index,
-    isMain: hasMain ? image.isMain : index === 0,
+    isMain,
   };
 }
 
-function imageChanged(image: ImageForm) {
-  return image.productVariantId !== image.original.productVariantId ||
-    image.storageKey.trim() !== image.original.storageKey ||
-    image.publicUrl.trim() !== image.original.publicUrl ||
-    (image.altText?.trim() || '') !== (image.original.altText || '') ||
-    image.sortOrder !== image.original.sortOrder ||
-    image.isMain !== image.original.isMain;
+function imageChanged(image: ImageForm, input: AdminProductImageInput) {
+  return input.productVariantId !== image.original.productVariantId ||
+    input.storageKey !== image.original.storageKey ||
+    input.publicUrl !== image.original.publicUrl ||
+    (input.altText || '') !== (image.original.altText || '') ||
+    input.sortOrder !== image.original.sortOrder ||
+    input.isMain !== image.original.isMain;
 }
 
-function imageMetadataChanged(image: ImageForm) {
-  return image.productVariantId !== image.original.productVariantId ||
-    image.storageKey.trim() !== image.original.storageKey ||
-    image.publicUrl.trim() !== image.original.publicUrl ||
-    (image.altText?.trim() || '') !== (image.original.altText || '') ||
-    image.sortOrder !== image.original.sortOrder;
+function imageMetadataChanged(image: ImageForm, input: AdminProductImageInput) {
+  return input.productVariantId !== image.original.productVariantId ||
+    input.storageKey !== image.original.storageKey ||
+    input.publicUrl !== image.original.publicUrl ||
+    (input.altText || '') !== (image.original.altText || '') ||
+    input.sortOrder !== image.original.sortOrder;
 }
 
 function assertValidUrl(value: string) {
@@ -332,12 +383,12 @@ function validateForm(form: ProductFormState, variants: VariantForm[], images: I
     }
   }
 
-  const savedVariantIds = new Set(variants.map((variant) => variant.id).filter(Boolean));
+  const variantLocalIds = new Set(variants.map((variant) => variant.localId));
+  const variantIds = new Set(variants.map((variant) => variant.id).filter(Boolean));
   for (const image of images) {
     if (!image.publicUrl.trim() && !image.storageKey.trim()) continue;
-    if (image.productVariantId && !savedVariantIds.has(image.productVariantId)) {
-      return 'Vincule imagens apenas a SKUs já salvos. Salve o produto primeiro e depois associe as fotos ao SKU.';
-    }
+    if (image.variantLocalId && !variantLocalIds.has(image.variantLocalId)) return 'Uma imagem está vinculada a um SKU removido.';
+    if (!image.variantLocalId && image.productVariantId && !variantIds.has(image.productVariantId)) return 'Uma imagem está vinculada a um SKU removido.';
     if (!assertValidUrl(image.publicUrl.trim())) return 'Informe uma URL pública válida para cada imagem.';
     if (!image.storageKey.trim()) return 'Informe a chave de storage de cada imagem.';
   }
@@ -352,6 +403,65 @@ function validateImageUploadFile(file: File) {
   return null;
 }
 
+function resolveImageProductVariantId(
+  image: ImageForm,
+  variants: VariantForm[],
+  savedProduct: AdminProduct,
+) {
+  if (!image.variantLocalId && image.productVariantId) return image.productVariantId;
+
+  const variant = image.variantLocalId
+    ? variants.find((candidate) => candidate.localId === image.variantLocalId)
+    : image.productVariantId
+      ? variants.find((candidate) => candidate.id === image.productVariantId)
+      : undefined;
+
+  if (!variant) return undefined;
+
+  const savedVariant = savedProduct.variants.find((candidate) => normalizeSku(candidate.sku) === normalizeSku(variant.sku));
+  return savedVariant?.id ?? variant.id;
+}
+
+function prepareImageDrafts(
+  images: ImageForm[],
+  variants: VariantForm[],
+  savedProduct: AdminProduct,
+): Array<{ source: ImageForm; input: AdminProductImageInput }> {
+  const entries = images
+    .filter((image) => image.publicUrl.trim() || image.storageKey.trim())
+    .map((image) => ({
+      image,
+      scopeKey: imageScopeKey(image, variants),
+    }));
+
+  const scopeHasMain = new Map<string, boolean>();
+  const scopeFirstImage = new Map<string, string>();
+  for (const entry of entries) {
+    if (!scopeFirstImage.has(entry.scopeKey)) scopeFirstImage.set(entry.scopeKey, entry.image.localId);
+    if (entry.image.isMain) scopeHasMain.set(entry.scopeKey, true);
+  }
+
+  const scopeSortOrder = new Map<string, number>();
+  return entries.map((entry) => {
+    const sortOrder = scopeSortOrder.get(entry.scopeKey) ?? 0;
+    scopeSortOrder.set(entry.scopeKey, sortOrder + 1);
+
+    const isMain = scopeHasMain.get(entry.scopeKey)
+      ? entry.image.isMain
+      : scopeFirstImage.get(entry.scopeKey) === entry.image.localId;
+
+    return {
+      source: entry.image,
+      input: cleanImage(
+        entry.image,
+        sortOrder,
+        isMain,
+        resolveImageProductVariantId(entry.image, variants, savedProduct),
+      ),
+    };
+  });
+}
+
 export function AdminProductForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -362,6 +472,7 @@ export function AdminProductForm() {
   const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([emptyVariant(true)]);
   const [images, setImages] = useState<ImageForm[]>([]);
+  const [activeImageScope, setActiveImageScope] = useState(IMAGE_SCOPE_GENERAL);
   const [isDraggingImages, setIsDraggingImages] = useState(false);
   const dragCounterRef = useRef(0);
 
@@ -384,21 +495,60 @@ export function AdminProductForm() {
   const statusOptions = form.status === 'Archived'
     ? [...STATUS_OPTIONS, { value: 'Archived', label: 'Arquivado' }]
     : STATUS_OPTIONS;
-  const imageVariantOptions = useMemo(
-    () => variants.filter((variant) => Boolean(variant.id)).map((variant) => ({
-      id: variant.id!,
-      label: variantImageLabel(variant),
-    })),
+  const imageScopeOptions = useMemo<ImageScopeOption[]>(
+    () => [
+      {
+        key: IMAGE_SCOPE_GENERAL,
+        label: 'Produto geral',
+        shortLabel: 'Geral',
+        meta: 'Vitrine e fallback',
+        isPersisted: true,
+      },
+      ...variants.map((variant, index) => ({
+        key: variant.localId,
+        label: variantImageLabel(variant),
+        shortLabel: variantShortLabel(variant, index),
+        meta: [variant.color?.trim(), variant.size?.trim(), variant.id ? 'salvo' : 'novo', !variant.isActive ? 'inativo' : null]
+          .filter(Boolean)
+          .join(' · '),
+        productVariantId: variant.id,
+        variantLocalId: variant.localId,
+        colorHex: variant.colorHex?.trim(),
+        isPersisted: Boolean(variant.id),
+      })),
+    ],
     [variants],
   );
+  const imageScopeOptionByKey = useMemo(
+    () => new Map(imageScopeOptions.map((option) => [option.key, option])),
+    [imageScopeOptions],
+  );
+  const imageScopeCounts = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const image of images) {
+      const key = imageScopeKey(image, variants);
+      counts.set(key, (counts.get(key) ?? 0) + 1);
+    }
+    return counts;
+  }, [images, variants]);
+  const visibleImages = useMemo(
+    () => images.filter((image) => imageScopeKey(image, variants) === activeImageScope),
+    [activeImageScope, images, variants],
+  );
+  const activeImageScopeOption = imageScopeOptionByKey.get(activeImageScope) ?? imageScopeOptions[0];
 
   useEffect(() => {
     if (!isNew && product) {
+      const productVariants = variantFromProduct(product);
       setForm(formFromProduct(product));
-      setVariants(variantFromProduct(product));
-      setImages(product.images.map(imageFromProduct));
+      setVariants(productVariants);
+      setImages(product.images.map((image) => imageFromProduct(image, productVariants)));
     }
   }, [isNew, product]);
+
+  useEffect(() => {
+    if (!imageScopeOptionByKey.has(activeImageScope)) setActiveImageScope(IMAGE_SCOPE_GENERAL);
+  }, [activeImageScope, imageScopeOptionByKey]);
 
   const saveMutation = useMutation({
     mutationFn: async () => {
@@ -430,10 +580,8 @@ export function AdminProductForm() {
         );
       }
 
-      const imageDrafts = images
-        .filter((image) => image.publicUrl.trim() || image.storageKey.trim())
-        .map((image, index, all) => cleanImage(image, index, all.some((item) => item.isMain)));
-      const keptImageIds = new Set(imageDrafts.filter((image) => image.id).map((image) => image.id));
+      const imageDrafts = prepareImageDrafts(images, variants, savedProduct);
+      const keptImageIds = new Set(imageDrafts.filter((draft) => draft.input.id).map((draft) => draft.input.id));
 
       if (!isNew && product) {
         const removedImages = product.images.filter((image) => !keptImageIds.has(image.id));
@@ -442,13 +590,13 @@ export function AdminProductForm() {
         );
       }
 
-      for (const image of imageDrafts) {
-        const current = images.find((candidate) => candidate.id === image.id);
+      for (const draft of imageDrafts) {
+        const image = draft.input;
         if (image.id) {
-          if (current?.existing && imageChanged(current)) {
-            if (imageMetadataChanged(current)) {
+          if (draft.source.existing && imageChanged(draft.source, image)) {
+            if (imageMetadataChanged(draft.source, image)) {
               await adminService.updateAdminProductImage(savedProduct.id, image.id, image);
-            } else if (current.isMain && current.isMain !== current.original.isMain) {
+            } else if (image.isMain && image.isMain !== draft.source.original.isMain) {
               await adminService.setAdminProductMainImage(savedProduct.id, image.id);
             }
           }
@@ -474,20 +622,23 @@ export function AdminProductForm() {
   });
 
   const imageUploadMutation = useMutation({
-    mutationFn: async (file: File) => {
+    mutationFn: async ({ file }: { file: File; scopeKey: string }) => {
       const validation = validateImageUploadFile(file);
       if (validation) throw new Error(validation);
 
       return adminService.uploadAdminProductImage(file);
     },
-    onSuccess: (upload, file) => {
+    onSuccess: (upload, { file, scopeKey }) => {
       setImages((current) => {
-        const hasMainImage = current.some((image) => image.isMain);
+        const scopeOption = imageScopeOptionByKey.get(scopeKey);
+        const scopedPatch = imageScopePatch(scopeOption);
+        const hasMainImage = current.some((image) => imageScopeKey(image, variants) === scopeKey && image.isMain);
 
         return [
           ...current,
           {
             ...emptyImage(),
+            ...scopedPatch,
             storageKey: upload.storageKey,
             publicUrl: upload.publicUrl,
             altText: form.name.trim() || file.name,
@@ -536,12 +687,22 @@ export function AdminProductForm() {
   };
 
   const removeVariant = (localId: string) => {
+    const removedVariant = variants.find((variant) => variant.localId === localId);
     setVariants((current) => {
       if (current.length <= 1) return current;
       const next = current.filter((variant) => variant.localId !== localId);
       if (!next.some((variant) => variant.isDefault)) next[0].isDefault = true;
       return next;
     });
+    setImages((current) => current.map((image) => {
+      const referencesRemovedVariant = image.variantLocalId === localId ||
+        (removedVariant?.id && image.productVariantId === removedVariant.id);
+
+      return referencesRemovedVariant
+        ? { ...image, productVariantId: undefined, variantLocalId: undefined }
+        : image;
+    }));
+    if (activeImageScope === localId) setActiveImageScope(IMAGE_SCOPE_GENERAL);
   };
 
   const updateImage = (localId: string, patch: Partial<ImageForm>) => {
@@ -550,14 +711,17 @@ export function AdminProductForm() {
     )));
   };
 
-  const updateImageVariant = (localId: string, productVariantId?: string) => {
+  const updateImageScope = (localId: string, scopeKey: string) => {
+    const scopeOption = imageScopeOptionByKey.get(scopeKey);
+    const scopedPatch = imageScopePatch(scopeOption);
+
     setImages((current) => {
       const selected = current.find((image) => image.localId === localId);
       if (!selected) return current;
 
       return current.map((image) => {
-        if (image.localId === localId) return { ...image, productVariantId };
-        if (selected.isMain && image.productVariantId === productVariantId) return { ...image, isMain: false };
+        if (image.localId === localId) return { ...image, ...scopedPatch };
+        if (selected.isMain && imageScopeKey(image, variants) === scopeKey) return { ...image, isMain: false };
         return image;
       });
     });
@@ -567,9 +731,10 @@ export function AdminProductForm() {
     setImages((current) => {
       const selected = current.find((image) => image.localId === localId);
       if (!selected) return current;
+      const selectedScopeKey = imageScopeKey(selected, variants);
 
       return current.map((image) => (
-        image.productVariantId === selected.productVariantId
+        imageScopeKey(image, variants) === selectedScopeKey
           ? { ...image, isMain: image.localId === localId }
           : image
       ));
@@ -578,7 +743,7 @@ export function AdminProductForm() {
 
   const uploadImageFiles = (files: FileList | File[] | null | undefined) => {
     if (!files) return;
-    Array.from(files).forEach((file) => imageUploadMutation.mutate(file));
+    Array.from(files).forEach((file) => imageUploadMutation.mutate({ file, scopeKey: activeImageScope }));
   };
 
   const handleImageUploadChange = (event: ChangeEvent<HTMLInputElement>) => {
@@ -1081,6 +1246,40 @@ export function AdminProductForm() {
                 onChange={handleImageUploadChange}
               />
 
+              <div className="flex gap-2 overflow-x-auto pb-1">
+                {imageScopeOptions.map((option) => {
+                  const count = imageScopeCounts.get(option.key) ?? 0;
+                  const selected = activeImageScope === option.key;
+
+                  return (
+                    <button
+                      key={option.key}
+                      type="button"
+                      onClick={() => setActiveImageScope(option.key)}
+                      className={cn(
+                        'min-w-[120px] rounded-[var(--radius-md)] border px-3 py-2 text-left transition-colors',
+                        selected ? 'border-terracotta bg-terracotta/10' : 'border-border bg-surface hover:border-terracotta/60',
+                      )}
+                    >
+                      <span className="flex items-center gap-2">
+                        {option.colorHex && (
+                          <span
+                            className="h-3 w-3 shrink-0 rounded-full border border-graphite/10"
+                            style={{ backgroundColor: option.colorHex }}
+                            aria-hidden
+                          />
+                        )}
+                        <span className="truncate text-xs font-semibold text-graphite">{option.shortLabel}</span>
+                        <span className="ml-auto rounded-full bg-cream-light px-1.5 py-0.5 text-[10px] font-semibold text-graphite-soft">
+                          {count}
+                        </span>
+                      </span>
+                      {option.meta && <span className="mt-0.5 block truncate text-[11px] text-graphite-soft">{option.meta}</span>}
+                    </button>
+                  );
+                })}
+              </div>
+
               <div
                 role="button"
                 tabIndex={0}
@@ -1098,16 +1297,15 @@ export function AdminProductForm() {
                 )}
               >
                 <UploadSimple size={24} className="text-store-gray" />
-                <p className="text-sm font-medium text-graphite">Arraste fotos aqui ou clique para enviar</p>
+                <p className="text-sm font-medium text-graphite">Enviar para {activeImageScopeOption?.shortLabel ?? 'Geral'}</p>
                 <p className="text-xs text-graphite-soft">JPG, PNG, WEBP ou GIF · até 10 MB · várias de uma vez</p>
               </div>
 
-              {images.length > 0 && (
+              {visibleImages.length > 0 && (
                 <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                  {images.map((image) => {
-                    const scopeLabel = image.productVariantId
-                      ? imageVariantOptions.find((option) => option.id === image.productVariantId)?.label ?? 'SKU removido'
-                      : 'Produto geral';
+                  {visibleImages.map((image) => {
+                    const scopeKey = imageScopeKey(image, variants);
+                    const scopeLabel = imageScopeOptionByKey.get(scopeKey)?.label ?? 'Produto geral';
 
                     return (
                       <div key={image.localId} className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
@@ -1157,13 +1355,14 @@ export function AdminProductForm() {
                             {(fieldId) => (
                               <Select
                                 id={fieldId}
-                                value={image.productVariantId ?? ''}
-                                onChange={(event) => updateImageVariant(image.localId, event.target.value || undefined)}
+                                value={scopeKey}
+                                onChange={(event) => updateImageScope(image.localId, event.target.value)}
                                 className="h-9 px-3 text-xs"
                               >
-                                <option value="">Produto geral</option>
-                                {imageVariantOptions.map((option) => (
-                                  <option key={option.id} value={option.id}>{option.label}</option>
+                                {imageScopeOptions.map((option) => (
+                                  <option key={option.key} value={option.key}>
+                                    {option.isPersisted ? option.label : `${option.label} (novo)`}
+                                  </option>
                                 ))}
                               </Select>
                             )}
@@ -1185,6 +1384,11 @@ export function AdminProductForm() {
                 </div>
               )}
               {images.length === 0 && <p className="text-sm text-graphite-soft">Nenhuma imagem cadastrada.</p>}
+              {images.length > 0 && visibleImages.length === 0 && (
+                <p className="rounded-[var(--radius-md)] border border-dashed border-border px-3 py-4 text-sm text-graphite-soft">
+                  Nenhuma imagem neste grupo.
+                </p>
+              )}
             </div>
           </Panel>
 
