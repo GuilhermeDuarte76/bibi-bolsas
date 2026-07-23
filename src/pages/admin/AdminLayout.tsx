@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
 import {
+  ChartBar,
   ChartLineUp,
   Gear,
   List,
@@ -13,6 +14,7 @@ import {
   SignOut,
   Star,
   Tag,
+  Folders,
   Truck,
   UsersThree,
   Lightning,
@@ -28,6 +30,7 @@ const GROUPS: { title: string; links: { to: string; label: string; icon: typeof 
     title: 'Operação',
     links: [
       { to: '/admin', label: 'Dashboard', icon: ChartLineUp, end: true },
+      { to: '/admin/relatorios', label: 'Relatórios', icon: ChartBar },
       { to: '/admin/pedidos', label: 'Pedidos', icon: ShoppingBag },
       { to: '/admin/clientes', label: 'Clientes', icon: UsersThree },
       { to: '/admin/avaliacoes', label: 'Avaliações', icon: Star },
@@ -37,6 +40,7 @@ const GROUPS: { title: string; links: { to: string; label: string; icon: typeof 
     title: 'Catálogo',
     links: [
       { to: '/admin/produtos', label: 'Produtos', icon: Package },
+      { to: '/admin/categorias', label: 'Categorias', icon: Folders },
       { to: '/admin/estoque', label: 'Estoque', icon: Stack },
       { to: '/admin/cupons', label: 'Cupons', icon: Tag },
       { to: '/admin/promocoes', label: 'Promoções', icon: Percent },
@@ -48,7 +52,7 @@ const GROUPS: { title: string; links: { to: string; label: string; icon: typeof 
       { to: '/admin/frete', label: 'Frete', icon: Truck },
       { to: '/admin/pagamentos', label: 'Pagamentos', icon: Money },
       { to: '/admin/fiscal', label: 'Fiscal', icon: Receipt },
-      { to: '/admin/automacoes', label: 'Alertas', icon: Lightning },
+      { to: '/admin/automacoes', label: 'Automações', icon: Lightning },
     ],
   },
   {

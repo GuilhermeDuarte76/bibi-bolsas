@@ -28,8 +28,10 @@ const ReviewsPage = lazy(() => import('@/pages/account/ReviewsPage').then((m) =>
 const AdminLayout = lazy(() => import('@/pages/admin/AdminLayout').then((m) => ({ default: m.AdminLayout })));
 const AdminLogin = lazy(() => import('@/pages/admin/AdminLogin').then((m) => ({ default: m.AdminLogin })));
 const AdminDashboard = lazy(() => import('@/pages/admin/AdminDashboard').then((m) => ({ default: m.AdminDashboard })));
+const AdminReports = lazy(() => import('@/pages/admin/AdminReports').then((m) => ({ default: m.AdminReports })));
 const AdminProducts = lazy(() => import('@/pages/admin/AdminProducts').then((m) => ({ default: m.AdminProducts })));
 const AdminProductForm = lazy(() => import('@/pages/admin/AdminProductForm').then((m) => ({ default: m.AdminProductForm })));
+const AdminCategories = lazy(() => import('@/pages/admin/AdminCategories').then((m) => ({ default: m.AdminCategories })));
 const AdminInventory = lazy(() => import('@/pages/admin/AdminInventory').then((m) => ({ default: m.AdminInventory })));
 const AdminOrders = lazy(() => import('@/pages/admin/AdminOrders').then((m) => ({ default: m.AdminOrders })));
 const AdminOrderDetail = lazy(() => import('@/pages/admin/AdminOrders').then((m) => ({ default: m.AdminOrderDetail })));
@@ -40,7 +42,7 @@ const AdminCustomers = lazy(() => import('@/pages/admin/AdminCommerce').then((m)
 const AdminShipping = lazy(() => import('@/pages/admin/AdminIntegrations').then((m) => ({ default: m.AdminShipping })));
 const AdminPayments = lazy(() => import('@/pages/admin/AdminIntegrations').then((m) => ({ default: m.AdminPayments })));
 const AdminFiscal = lazy(() => import('@/pages/admin/AdminIntegrations').then((m) => ({ default: m.AdminFiscal })));
-const AdminAutomations = lazy(() => import('@/pages/admin/AdminIntegrations').then((m) => ({ default: m.AdminAutomations })));
+const AdminAutomations = lazy(() => import('@/pages/admin/AdminAutomations').then((m) => ({ default: m.AdminAutomations })));
 const AdminUsers = lazy(() => import('@/pages/admin/AdminAccess').then((m) => ({ default: m.AdminUsers })));
 const AdminPermissions = lazy(() => import('@/pages/admin/AdminAccess').then((m) => ({ default: m.AdminPermissions })));
 const AdminSettings = lazy(() => import('@/pages/admin/AdminAccess').then((m) => ({ default: m.AdminSettings })));
@@ -100,9 +102,11 @@ export default function App() {
             }
           >
             <Route index element={<AdminDashboard />} />
+            <Route path="relatorios" element={<AdminReports />} />
             <Route path="produtos" element={<AdminProducts />} />
             <Route path="produtos/novo" element={<AdminProductForm />} />
             <Route path="produtos/:id" element={<AdminProductForm />} />
+            <Route path="categorias" element={<AdminCategories />} />
             <Route path="estoque" element={<AdminInventory />} />
             <Route path="pedidos" element={<AdminOrders />} />
             <Route path="pedidos/:id" element={<AdminOrderDetail />} />

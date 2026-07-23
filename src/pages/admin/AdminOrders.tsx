@@ -1,18 +1,20 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CaretLeft, DownloadSimple, FileText, Printer, WarningCircle } from '@phosphor-icons/react';
+import { CaretLeft, ClockCounterClockwise, DownloadSimple, FileText, MagnifyingGlass, Printer, WarningCircle } from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
-import type { FiscalPreview, Order, OrderStatus, PaymentMethod } from '@/types';
+import type { FiscalPreview, Order, OrderStatus, PaymentAttempt, PaymentMethod, WebhookEvent } from '@/types';
+import type { AdminOrderFilters } from '@/lib/api/admin.service';
 import { PageHeader, AdminTable, Panel } from '@/components/admin/AdminUI';
 import { ORDER_STATUS_LABEL, OrderStatusPill } from '@/lib/orderStatus';
 import { Skeleton } from '@/components/ui/Skeleton';
+import { Pill } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Field, Input, Select, Textarea } from '@/components/ui/Field';
 import { toast } from '@/components/ui/Toast';
 import { formatDate, formatDateShort, formatPrice, formatZip } from '@/lib/utils';
 
-const STATUS_FILTERS: (OrderStatus | 'all')[] = ['all', 'pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'canceled'];
+const STATUS_FILTERS: (OrderStatus | 'all')[] = ['all', 'pending_payment', 'paid', 'processing', 'shipped', 'delivered', 'canceled', 'refunded'];
 
 const PAYMENT_LABEL: Record<PaymentMethod, string> = {
   pix: 'Pix',
@@ -181,15 +183,76 @@ function printFiscalPreview(preview: FiscalPreview): void {
 export function AdminOrders() {
   const navigate = useNavigate();
   const [status, setStatus] = useState<OrderStatus | 'all'>('all');
-  const { data, isLoading } = useQuery({ queryKey: queryKeys.admin.orders, queryFn: () => adminService.listOrders() });
+  const [search, setSearch] = useState('');
+  const [from, setFrom] = useState('');
+  const [to, setTo] = useState('');
+  const filters = useMemo<AdminOrderFilters>(() => ({
+    status: status === 'all' ? undefined : status,
+    search: search.trim() || undefined,
+    from: from || undefined,
+    to: to || undefined,
+    page: 1,
+    pageSize: 100,
+  }), [from, search, status, to]);
+  const { data, isLoading, isFetching } = useQuery({
+    queryKey: queryKeys.admin.ordersList(filters),
+    queryFn: () => adminService.listOrders(filters),
+  });
 
-  const rows = (data ?? []).filter((o) => status === 'all' || o.status === status);
+  const rows = data ?? [];
+  const paidCount = rows.filter((order) => order.status === 'paid').length;
+  const shippingCount = rows.filter((order) => order.status === 'processing' || order.status === 'shipped').length;
+  const pendingCount = rows.filter((order) => order.status === 'pending_payment').length;
 
   return (
     <div>
-      <PageHeader title="Pedidos" subtitle={`${data?.length ?? 0} pedidos`} />
+      <PageHeader title="Pedidos" subtitle={`${rows.length} pedidos no filtro`} />
 
-      <div className="mb-4 flex flex-wrap gap-2">
+      <div className="mb-6 grid gap-4 md:grid-cols-3">
+        <Panel>
+          <p className="text-sm text-graphite-soft">Pagamento pendente</p>
+          <p className="mt-2 text-2xl font-semibold text-warning">{pendingCount}</p>
+        </Panel>
+        <Panel>
+          <p className="text-sm text-graphite-soft">Pagos</p>
+          <p className="mt-2 text-2xl font-semibold text-success">{paidCount}</p>
+        </Panel>
+        <Panel>
+          <p className="text-sm text-graphite-soft">Operação/envio</p>
+          <p className="mt-2 text-2xl font-semibold text-graphite">{shippingCount}</p>
+        </Panel>
+      </div>
+
+      <Panel title="Filtros">
+        <div className="grid gap-3 lg:grid-cols-[1fr_170px_170px_170px]">
+          <div className="relative">
+            <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-store-gray" />
+            <Input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Pedido, cliente, CPF, e-mail ou rastreio"
+              className="pl-10"
+              aria-label="Buscar pedido"
+            />
+          </div>
+          <Input type="date" value={from} onChange={(event) => setFrom(event.target.value)} aria-label="Data inicial" />
+          <Input type="date" value={to} onChange={(event) => setTo(event.target.value)} aria-label="Data final" />
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => {
+              setSearch('');
+              setFrom('');
+              setTo('');
+              setStatus('all');
+            }}
+          >
+            Limpar filtros
+          </Button>
+        </div>
+      </Panel>
+
+      <div className="my-4 flex flex-wrap gap-2">
         {STATUS_FILTERS.map((s) => (
           <button
             key={s}
@@ -201,7 +264,7 @@ export function AdminOrders() {
         ))}
       </div>
 
-      {isLoading ? (
+      {isLoading || isFetching ? (
         <Skeleton className="h-72 w-full rounded-[var(--radius-lg)]" />
       ) : (
         <AdminTable<Order>
@@ -241,6 +304,21 @@ export function AdminOrderDetail() {
     queryFn: () => adminService.getOrder(id!),
     enabled: !!id,
   });
+  const historyQuery = useQuery({
+    queryKey: queryKeys.admin.orderHistory(id ?? ''),
+    queryFn: () => adminService.listOrderHistory(id!),
+    enabled: !!id,
+  });
+  const paymentsQuery = useQuery({
+    queryKey: queryKeys.admin.orderPayments(id ?? ''),
+    queryFn: () => adminService.listOrderPayments(id!),
+    enabled: !!id,
+  });
+  const webhookEventsQuery = useQuery({
+    queryKey: queryKeys.admin.orderWebhookEvents(id ?? ''),
+    queryFn: () => adminService.listOrderWebhookEvents(id!),
+    enabled: !!id,
+  });
   const fiscalPreview = useQuery({
     queryKey: queryKeys.admin.fiscalPreview(id!),
     queryFn: () => adminService.getFiscalPreview(id!),
@@ -264,6 +342,7 @@ export function AdminOrderDetail() {
   });
   const applyOrderUpdate = async (updated: Order, message: string) => {
     queryClient.setQueryData(queryKeys.admin.order(id!), updated);
+    queryClient.setQueryData(queryKeys.admin.orderHistory(id!), updated.history ?? []);
     await queryClient.invalidateQueries({ queryKey: queryKeys.admin.orders });
     toast.success(message);
   };
@@ -296,6 +375,9 @@ export function AdminOrderDetail() {
   });
 
   const preview = generateFiscalPreview.data ?? fiscalPreview.data;
+  const historyEvents = historyQuery.data ?? order?.history ?? [];
+  const paymentAttempts = paymentsQuery.data ?? (order?.paymentAttempt ? [order.paymentAttempt] : []);
+  const webhookEvents = webhookEventsQuery.data ?? [];
   const targets = order ? operationalTargets(order.status) : [];
   const showShipmentForm = order ? canRegisterShipment(order.status) || canUpdateTracking(order.status) : false;
   const shipmentButtonLabel = order && canRegisterShipment(order.status) ? 'Registrar envio' : 'Atualizar rastreio';
@@ -618,20 +700,70 @@ export function AdminOrderDetail() {
           </Panel>
 
           <Panel title="Histórico">
-            {order.history?.length ? (
+            {historyQuery.isLoading ? (
+              <Skeleton className="h-40 w-full rounded-[var(--radius-lg)]" />
+            ) : historyEvents.length ? (
               <ol className="space-y-3">
-                {order.history.slice(0, 6).map((event) => (
+                {historyEvents.slice(0, 8).map((event) => (
                   <li key={event.id} className="border-l-2 border-border pl-3">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-sm font-medium text-graphite">{historyStatusLabel(event.status)}</p>
                       <time className="text-xs text-graphite-soft">{new Date(event.createdAt).toLocaleString('pt-BR')}</time>
                     </div>
+                    <p className="mt-1 text-xs text-graphite-soft">
+                      {event.previousStatus ? `${historyStatusLabel(event.previousStatus)} → ` : ''}
+                      {event.source || 'Sistema'}
+                      {event.changedByUserId ? ` · Usuário #${event.changedByUserId}` : ''}
+                    </p>
                     {event.reason && <p className="mt-1 text-xs text-graphite-soft">{event.reason}</p>}
                   </li>
                 ))}
               </ol>
             ) : (
-              <p className="text-sm text-graphite-soft">Nenhum evento registrado.</p>
+              <div className="flex items-start gap-3 text-sm leading-6 text-graphite-soft">
+                <ClockCounterClockwise size={21} className="mt-0.5 text-cinnamon" />
+                <p>Nenhum evento registrado.</p>
+              </div>
+            )}
+          </Panel>
+
+          <Panel title="Pagamentos">
+            {paymentsQuery.isLoading ? (
+              <Skeleton className="h-32 w-full rounded-[var(--radius-lg)]" />
+            ) : paymentAttempts.length ? (
+              <AdminTable<PaymentAttempt>
+                rowKey={(attempt) => attempt.id}
+                rows={paymentAttempts}
+                columns={[
+                  { key: 'provider', header: 'Gateway', render: (attempt) => attempt.provider },
+                  { key: 'method', header: 'Método', render: (attempt) => PAYMENT_LABEL[attempt.method] ?? attempt.method },
+                  { key: 'status', header: 'Status', render: (attempt) => <Pill tone={attempt.status === 'Approved' ? 'success' : attempt.status === 'Failed' ? 'danger' : 'warning'}>{attempt.status}</Pill> },
+                  { key: 'amount', header: 'Valor', render: (attempt) => formatPrice(attempt.amountCents) },
+                  { key: 'created', header: 'Criado', render: (attempt) => formatDateShort(attempt.createdAt) },
+                ]}
+              />
+            ) : (
+              <p className="text-sm text-graphite-soft">Nenhuma tentativa de pagamento registrada.</p>
+            )}
+          </Panel>
+
+          <Panel title="Webhooks">
+            {webhookEventsQuery.isLoading ? (
+              <Skeleton className="h-32 w-full rounded-[var(--radius-lg)]" />
+            ) : webhookEvents.length ? (
+              <AdminTable<WebhookEvent>
+                rowKey={(event) => event.id}
+                rows={webhookEvents}
+                columns={[
+                  { key: 'provider', header: 'Gateway', render: (event) => event.provider },
+                  { key: 'external', header: 'Evento', render: (event) => event.externalEventId ?? '-' },
+                  { key: 'status', header: 'Status', render: (event) => <Pill tone={event.status === 'Processed' ? 'success' : event.status === 'Failed' ? 'danger' : 'warning'}>{event.status}</Pill> },
+                  { key: 'hash', header: 'Hash', render: (event) => <span className="font-mono text-xs">{event.payloadHash.slice(0, 12)}</span> },
+                  { key: 'received', header: 'Recebido', render: (event) => formatDateShort(event.receivedAt) },
+                ]}
+              />
+            ) : (
+              <p className="text-sm text-graphite-soft">Nenhum webhook vinculado a este pedido.</p>
             )}
           </Panel>
 

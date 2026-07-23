@@ -163,6 +163,20 @@ export interface AdminProductVariant {
   updatedAt?: string;
 }
 
+export interface AdminProductPriceHistory {
+  id: string;
+  productVariantId: string;
+  sku: string;
+  oldPriceCents: number;
+  newPriceCents: number;
+  oldPromotionalPriceCents?: number;
+  newPromotionalPriceCents?: number;
+  oldCostPriceCents?: number;
+  newCostPriceCents?: number;
+  changedByUserId?: string;
+  changedAt: string;
+}
+
 export interface AdminProduct {
   id: string;
   name: string;
@@ -583,6 +597,8 @@ export interface OrderHistoryEvent {
   id: string;
   previousStatus?: string;
   status: string;
+  source?: string;
+  changedByUserId?: string;
   reason?: string;
   createdAt: string;
 }
@@ -743,6 +759,12 @@ export interface AdminAlert {
   resolutionReason?: string;
 }
 
+export interface AdminCommerceScope {
+  scopeType: 'Order' | 'Product' | 'Category' | 'ProductVariant' | 'Shipping' | string;
+  targetId?: string;
+  isExcluded: boolean;
+}
+
 export interface Coupon {
   id: string;
   code: string;
@@ -764,6 +786,10 @@ export interface Coupon {
   expiresAt?: string;
   archivedAt?: string;
   archiveReason?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  scopes?: AdminCommerceScope[];
+  allowedCustomerUserIds?: string[];
 }
 
 export interface Promotion {
@@ -781,6 +807,9 @@ export interface Promotion {
   productCount: number;
   archivedAt?: string;
   archiveReason?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  scopes?: AdminCommerceScope[];
 }
 
 export interface AdminUser {
@@ -793,6 +822,31 @@ export interface AdminUser {
   emailConfirmed?: boolean;
   createdAt?: string;
   lastLogin?: string;
+}
+
+export interface AdminPermissionDefinition {
+  key: string;
+  area: string;
+  action: string;
+  description: string;
+  defaultForEmployee: boolean;
+  isAdminOnly: boolean;
+  sortOrder: number;
+}
+
+export interface AdminEmployeePermission {
+  key: string;
+  isAllowed: boolean;
+  isExplicit: boolean;
+  isAdminOnly: boolean;
+}
+
+export interface AdminEmployeePermissionMatrix {
+  userId: string;
+  name: string;
+  email: string;
+  isActive: boolean;
+  permissions: AdminEmployeePermission[];
 }
 
 export type AdminRole =
@@ -809,11 +863,21 @@ export type AdminRole =
 
 export interface AuditEntry {
   id: string;
+  actorUserId?: string;
+  actorRole?: string;
   actor: string;
   action: string;
+  entityName?: string;
+  entityId?: string;
   target: string;
   at: string;
   meta?: string;
+  reason?: string;
+  ipAddress?: string;
+  oldValueJson?: string;
+  newValueJson?: string;
+  userAgent?: string;
+  correlationId?: string;
 }
 
 export interface IntegrationStatus {

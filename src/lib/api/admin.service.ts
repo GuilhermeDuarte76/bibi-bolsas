@@ -1,19 +1,24 @@
 import type {
+  Address,
   AdminAlert,
   AdminCatalogCategory,
+  AdminCommerceScope,
   AdminCustomerDetail,
   AdminCustomerListItem,
   AdminCouponMetric,
+  AdminEmployeePermissionMatrix,
   AdminImageUploadUrl,
   AdminInventoryAdjustmentInput,
   AdminInventoryDetail,
   AdminInventorySummary,
   AdminLowStockItem,
+  AdminPermissionDefinition,
   AdminProduct,
   AdminProductCategory,
   AdminProductImageInput,
   AdminProductInput,
   AdminProductImage,
+  AdminProductPriceHistory,
   AdminProductVariant,
   AdminProductVariantInput,
   AdminStockMovement,
@@ -52,6 +57,7 @@ import {
 } from './mock/admin';
 import { customer as mockCustomer, orders, reviews } from './mock/account';
 import { categories, products } from './mock/catalog';
+import { slugify } from '@/lib/utils';
 
 interface BackendPaged<T> {
   items: T[];
@@ -172,6 +178,8 @@ interface BackendOrderHistoryDto {
   id: number;
   previousStatus?: string | null;
   newStatus: string;
+  source: string;
+  changedByUserId?: number | null;
   reason?: string | null;
   createdAt: string;
 }
@@ -257,6 +265,182 @@ interface BackendReportCouponMetricDto {
   discountTotal: number;
 }
 
+interface BackendSalesReportSummaryDto {
+  grossRevenue: number;
+  estimatedNetRevenue: number;
+  totalOrders: number;
+  averageTicket: number;
+  itemsSold: number;
+  discountTotal: number;
+  shippingTotal: number;
+  approvedPayments: number;
+  failedOrExpiredPayments: number;
+  canceledOrders: number;
+  refundedOrders: number;
+}
+
+interface BackendSalesReportItemDto {
+  orderId: number;
+  orderNumber: string;
+  createdAt: string;
+  status: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  customerName: string;
+  customerEmailMasked: string;
+  couponCode?: string | null;
+  subtotal: number;
+  discountTotal: number;
+  shippingTotal: number;
+  total: number;
+}
+
+interface BackendSalesReportDto {
+  summary: BackendSalesReportSummaryDto;
+  items: BackendSalesReportItemDto[];
+}
+
+interface BackendReportSkuMetricDto {
+  productVariantId: number;
+  sku: string;
+  variantName: string;
+  quantity: number;
+  revenue: number;
+}
+
+interface BackendMarginSummaryDto {
+  isAvailable: boolean;
+  message: string;
+  estimatedCostTotal?: number | null;
+  estimatedMarginTotal?: number | null;
+}
+
+interface BackendProductReportDto {
+  topProducts: BackendReportProductMetricDto[];
+  productsWithoutSales: BackendReportProductMetricDto[];
+  topSkus: BackendReportSkuMetricDto[];
+  marginSummary: BackendMarginSummaryDto;
+}
+
+interface BackendStockMovementReportItemDto {
+  id: number;
+  productVariantId: number;
+  sku: string;
+  type: string;
+  quantity: number;
+  reason?: string | null;
+  createdAt: string;
+}
+
+interface BackendStockReportDto {
+  lowStock: BackendReportStockItemDto[];
+  outOfStock: BackendReportStockItemDto[];
+  activeReservations: number;
+  expiredReservations: number;
+  recentMovements: BackendStockMovementReportItemDto[];
+}
+
+interface BackendCustomerReportItemDto {
+  userId: number;
+  name: string;
+  emailMasked: string;
+  cpfMasked?: string | null;
+  phoneMasked?: string | null;
+  paidOrders: number;
+  totalSpent: number;
+  createdAt: string;
+}
+
+interface BackendCustomerReportDto {
+  newCustomers: number;
+  recurringCustomers: number;
+  marketingConsentCustomers: number;
+  topCustomers: BackendCustomerReportItemDto[];
+  birthdays: BackendCustomerReportItemDto[];
+}
+
+interface BackendCouponSummaryReportDto {
+  coupons: BackendReportCouponMetricDto[];
+  totalCoupons: number;
+  activeCoupons: number;
+  reservedUsages: number;
+  consumedUsages: number;
+  consumedDiscountTotal: number;
+}
+
+interface BackendAbandonedCartItemDto {
+  cartId: number;
+  userId?: number | null;
+  customerName?: string | null;
+  customerEmailMasked?: string | null;
+  itemsCount: number;
+  estimatedTotal: number;
+  createdAt: string;
+  updatedAt?: string | null;
+  expiresAt: string;
+}
+
+interface BackendAbandonedCartReportDto {
+  totalCount: number;
+  items: BackendAbandonedCartItemDto[];
+}
+
+interface BackendReportExportDto {
+  id: number;
+  reportType: string;
+  format: string;
+  status: string;
+  fileName: string;
+  contentType: string;
+  includeSensitiveData: boolean;
+  requestedByUserId: number;
+  createdAt: string;
+  completedAt?: string | null;
+  expiresAt: string;
+  errorMessage?: string | null;
+}
+
+interface BackendNotificationMessageDto {
+  id: number;
+  userId?: number | null;
+  orderId?: number | null;
+  cartId?: number | null;
+  type: string;
+  channel: string;
+  status: string;
+  recipientMasked: string;
+  subject?: string | null;
+  dedupeKey?: string | null;
+  scheduledAt: string;
+  sentAt?: string | null;
+  failedAt?: string | null;
+  canceledAt?: string | null;
+  attemptCount: number;
+  lastError?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+interface BackendNotificationMessageDetailsDto extends BackendNotificationMessageDto {
+  body: string;
+  payloadJson?: string | null;
+}
+
+interface BackendAutomationJobRunDto {
+  id: number;
+  jobType: string;
+  status: string;
+  trigger: string;
+  triggeredByUserId?: number | null;
+  itemsProcessed: number;
+  itemsSucceeded: number;
+  itemsFailed: number;
+  errorMessage?: string | null;
+  metadataJson?: string | null;
+  startedAt: string;
+  finishedAt?: string | null;
+}
+
 interface BackendAdminAlertDto {
   id: number;
   type: string;
@@ -283,6 +467,31 @@ interface BackendAdminUserDto {
   lastLoginAt?: string | null;
 }
 
+interface BackendAdminPermissionDefinitionDto {
+  key: string;
+  area: string;
+  action: string;
+  description: string;
+  defaultForEmployee: boolean;
+  isAdminOnly: boolean;
+  sortOrder: number;
+}
+
+interface BackendEmployeePermissionDto {
+  key: string;
+  isAllowed: boolean;
+  isExplicit: boolean;
+  isAdminOnly: boolean;
+}
+
+interface BackendEmployeePermissionMatrixDto {
+  userId: number;
+  name: string;
+  email: string;
+  isActive: boolean;
+  permissions: BackendEmployeePermissionDto[];
+}
+
 interface BackendAuditLogDto {
   id: number;
   actorUserId?: number | null;
@@ -293,6 +502,13 @@ interface BackendAuditLogDto {
   reason?: string | null;
   ipAddress?: string | null;
   createdAt: string;
+}
+
+interface BackendAuditLogDetailsDto extends BackendAuditLogDto {
+  oldValueJson?: string | null;
+  newValueJson?: string | null;
+  userAgent?: string | null;
+  correlationId?: string | null;
 }
 
 interface BackendAdminCustomerListDto {
@@ -322,6 +538,28 @@ interface BackendAdminCustomerDetailDto {
   marketingAcceptedAt?: string | null;
   deleteRequestedAt?: string | null;
   anonymizedAt?: string | null;
+  createdAt: string;
+  updatedAt?: string | null;
+}
+
+interface BackendCustomerAddressDto {
+  id: number;
+  customerProfileId: number;
+  nickname?: string | null;
+  recipientName: string;
+  recipientPhoneMasked?: string | null;
+  zipCode: string;
+  street: string;
+  number: string;
+  complement?: string | null;
+  district: string;
+  city: string;
+  state: string;
+  country: string;
+  reference?: string | null;
+  type: string;
+  isDefault: boolean;
+  isActive: boolean;
   createdAt: string;
   updatedAt?: string | null;
 }
@@ -374,6 +612,44 @@ interface BackendPromotionDto {
   scopes: BackendCouponScopeDto[];
 }
 
+interface BackendCouponUsageDto {
+  id: number;
+  couponId: number;
+  userId: number;
+  orderId?: number | null;
+  cartId?: number | null;
+  status: string;
+  subtotal: number;
+  discountTotal: number;
+  shippingDiscount: number;
+  totalAfterDiscount: number;
+  reservedAt: string;
+  consumedAt?: string | null;
+  releasedAt?: string | null;
+  expiredAt?: string | null;
+  expiresAt: string;
+  releaseReason?: string | null;
+}
+
+interface BackendCouponReportDto {
+  couponId: number;
+  code: string;
+  reservedCount: number;
+  consumedCount: number;
+  releasedCount: number;
+  discountTotal: number;
+  revenueTotal: number;
+  averageTicket: number;
+}
+
+interface BackendPromotionReportDto {
+  promotionId: number;
+  name: string;
+  status: string;
+  isCurrentlyEligibleByDate: boolean;
+  message: string;
+}
+
 interface BackendAdminCategoryDto {
   id: number;
   name: string;
@@ -386,6 +662,17 @@ interface BackendAdminCategoryDto {
   seoDescription?: string | null;
   createdAt?: string;
   updatedAt?: string | null;
+}
+
+interface BackendSaveCategoryDto {
+  name: string;
+  slug?: string;
+  description?: string;
+  parentCategoryId?: number;
+  displayOrder: number;
+  isActive: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
 }
 
 interface BackendAdminProductImageDto {
@@ -453,6 +740,20 @@ interface BackendAdminProductDto {
   updatedAt?: string | null;
   publishedAt?: string | null;
   archivedAt?: string | null;
+}
+
+interface BackendProductPriceHistoryDto {
+  id: number;
+  productVariantId: number;
+  sku: string;
+  oldPrice: number;
+  newPrice: number;
+  oldPromotionalPrice?: number | null;
+  newPromotionalPrice?: number | null;
+  oldCostPrice?: number | null;
+  newCostPrice?: number | null;
+  changedByUserId?: number | null;
+  changedAt: string;
 }
 
 interface BackendInventorySummaryDto {
@@ -612,6 +913,15 @@ export interface AdminShipmentInput {
   shippedAt?: string;
 }
 
+export interface AdminOrderFilters {
+  status?: string;
+  search?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
+}
+
 export interface AdminEmployeeInput {
   name: string;
   email: string;
@@ -623,6 +933,29 @@ export interface AdminEmployeeUpdateInput {
   name: string;
   email: string;
   isActive: boolean;
+}
+
+export interface AdminEmployeePermissionUpdateInput {
+  allowedPermissionKeys: string[];
+  reason: string;
+}
+
+export interface AdminUserFilters {
+  search?: string;
+  role?: string;
+  isActive?: boolean;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AdminAuditFilters {
+  action?: string;
+  entityName?: string;
+  actorUserId?: string;
+  from?: string;
+  to?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 export interface AdminCouponInput {
@@ -640,6 +973,8 @@ export interface AdminCouponInput {
   isFirstPurchaseOnly: boolean;
   isPrivate: boolean;
   canApplyToPromotionalItems: boolean;
+  scopes?: AdminCouponScopeInput[];
+  allowedCustomerUserIds?: string[];
 }
 
 export interface AdminPromotionInput {
@@ -650,6 +985,323 @@ export interface AdminPromotionInput {
   minimumOrderValueCents?: number;
   startsAt: string;
   endsAt?: string;
+  scopes?: AdminCouponScopeInput[];
+}
+
+export type AdminCouponScopeInput = AdminCommerceScope;
+
+export interface AdminCouponUsage {
+  id: string;
+  couponId: string;
+  userId: string;
+  orderId?: string;
+  cartId?: string;
+  status: string;
+  subtotalCents: number;
+  discountTotalCents: number;
+  shippingDiscountCents: number;
+  totalAfterDiscountCents: number;
+  reservedAt: string;
+  consumedAt?: string;
+  releasedAt?: string;
+  expiredAt?: string;
+  expiresAt: string;
+  releaseReason?: string;
+}
+
+export interface AdminCouponUsageFilters {
+  status?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AdminCouponReport {
+  couponId: string;
+  code: string;
+  reservedCount: number;
+  consumedCount: number;
+  releasedCount: number;
+  discountTotalCents: number;
+  revenueTotalCents: number;
+  averageTicketCents: number;
+}
+
+export interface AdminPromotionReport {
+  promotionId: string;
+  name: string;
+  status: string;
+  isCurrentlyEligibleByDate: boolean;
+  message: string;
+}
+
+export interface AdminCategoryInput {
+  name: string;
+  slug?: string;
+  description?: string;
+  parentCategoryId?: string;
+  displayOrder: number;
+  isActive: boolean;
+  seoTitle?: string;
+  seoDescription?: string;
+}
+
+export type AdminReportType = 'Sales' | 'Products' | 'Stock' | 'Customers' | 'Coupons' | 'AbandonedCarts';
+export type AdminReportExportFormat = 'Csv';
+
+export interface AdminReportDateRange {
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface AdminSalesReportFilters extends AdminReportDateRange {
+  orderStatus?: string;
+  paymentMethod?: string;
+  productId?: string;
+  categoryId?: string;
+  customerId?: string;
+  couponCode?: string;
+  shippingProvider?: string;
+  minValue?: number;
+  maxValue?: number;
+}
+
+export interface AdminSalesReportSummary {
+  grossRevenueCents: number;
+  estimatedNetRevenueCents: number;
+  totalOrders: number;
+  averageTicketCents: number;
+  itemsSold: number;
+  discountTotalCents: number;
+  shippingTotalCents: number;
+  approvedPayments: number;
+  failedOrExpiredPayments: number;
+  canceledOrders: number;
+  refundedOrders: number;
+}
+
+export interface AdminSalesReportItem {
+  orderId: string;
+  orderNumber: string;
+  createdAt: string;
+  status: string;
+  paymentStatus: string;
+  paymentMethod: string;
+  customerName: string;
+  customerEmailMasked: string;
+  couponCode?: string;
+  subtotalCents: number;
+  discountTotalCents: number;
+  shippingTotalCents: number;
+  totalCents: number;
+}
+
+export interface AdminSalesReport {
+  summary: AdminSalesReportSummary;
+  items: AdminSalesReportItem[];
+}
+
+export interface AdminReportProductMetric {
+  productId: string;
+  productName: string;
+  quantity: number;
+  revenueCents: number;
+}
+
+export interface AdminReportSkuMetric {
+  productVariantId: string;
+  sku: string;
+  variantName: string;
+  quantity: number;
+  revenueCents: number;
+}
+
+export interface AdminMarginSummary {
+  isAvailable: boolean;
+  message: string;
+  estimatedCostTotalCents?: number;
+  estimatedMarginTotalCents?: number;
+}
+
+export interface AdminProductReport {
+  topProducts: AdminReportProductMetric[];
+  productsWithoutSales: AdminReportProductMetric[];
+  topSkus: AdminReportSkuMetric[];
+  marginSummary: AdminMarginSummary;
+}
+
+export interface AdminReportStockItem {
+  productVariantId: string;
+  sku: string;
+  productName: string;
+  variantName: string;
+  stockQuantity: number;
+  reservedQuantity: number;
+  availableQuantity: number;
+  minimumStock: number;
+}
+
+export interface AdminStockMovementReportItem {
+  id: string;
+  productVariantId: string;
+  sku: string;
+  type: string;
+  quantity: number;
+  reason?: string;
+  createdAt: string;
+}
+
+export interface AdminStockReport {
+  lowStock: AdminReportStockItem[];
+  outOfStock: AdminReportStockItem[];
+  activeReservations: number;
+  expiredReservations: number;
+  recentMovements: AdminStockMovementReportItem[];
+}
+
+export interface AdminCustomerReportItem {
+  userId: string;
+  name: string;
+  emailMasked: string;
+  cpfMasked?: string;
+  phoneMasked?: string;
+  paidOrders: number;
+  totalSpentCents: number;
+  createdAt: string;
+}
+
+export interface AdminCustomerReport {
+  newCustomers: number;
+  recurringCustomers: number;
+  marketingConsentCustomers: number;
+  topCustomers: AdminCustomerReportItem[];
+  birthdays: AdminCustomerReportItem[];
+}
+
+export interface AdminCouponSummaryReport {
+  coupons: AdminCouponMetric[];
+  totalCoupons: number;
+  activeCoupons: number;
+  reservedUsages: number;
+  consumedUsages: number;
+  consumedDiscountTotalCents: number;
+}
+
+export interface AdminAbandonedCartItem {
+  cartId: string;
+  userId?: string;
+  customerName?: string;
+  customerEmailMasked?: string;
+  itemsCount: number;
+  estimatedTotalCents: number;
+  createdAt: string;
+  updatedAt?: string;
+  expiresAt: string;
+}
+
+export interface AdminAbandonedCartReport {
+  totalCount: number;
+  items: AdminAbandonedCartItem[];
+}
+
+export interface AdminReportExportRequest extends AdminReportDateRange {
+  reportType: AdminReportType;
+  format: AdminReportExportFormat;
+  includeSensitiveData: boolean;
+}
+
+export interface AdminReportExport {
+  id: string;
+  reportType: AdminReportType | string;
+  format: AdminReportExportFormat | string;
+  status: string;
+  fileName: string;
+  contentType: string;
+  includeSensitiveData: boolean;
+  requestedByUserId: string;
+  createdAt: string;
+  completedAt?: string;
+  expiresAt: string;
+  errorMessage?: string;
+}
+
+export type AdminNotificationStatus = 'Pending' | 'Processing' | 'Sent' | 'Failed' | 'Canceled' | 'Skipped' | string;
+export type AdminNotificationType =
+  | 'OrderCreated'
+  | 'PaymentApproved'
+  | 'PaymentFailed'
+  | 'OrderStatusChanged'
+  | 'AbandonedCartReminder'
+  | 'MarketingOffer'
+  | 'PasswordReset'
+  | 'EmailChange'
+  | 'JobFailure'
+  | string;
+export type AdminNotificationChannel = 'Email' | 'WhatsApp' | 'Telegram' | 'N8n' | string;
+export type AdminAutomationJobType =
+  | 'ExpireCarts'
+  | 'ExpireStockReservations'
+  | 'ExpireCouponReservations'
+  | 'CleanupReportExports'
+  | 'SyncAdminAlerts'
+  | 'QueueAbandonedCartReminders'
+  | 'DispatchNotifications'
+  | 'RunAllMaintenance'
+  | string;
+
+export interface AdminNotificationMessage {
+  id: string;
+  userId?: string;
+  orderId?: string;
+  cartId?: string;
+  type: AdminNotificationType;
+  channel: AdminNotificationChannel;
+  status: AdminNotificationStatus;
+  recipientMasked: string;
+  subject?: string;
+  dedupeKey?: string;
+  scheduledAt: string;
+  sentAt?: string;
+  failedAt?: string;
+  canceledAt?: string;
+  attemptCount: number;
+  lastError?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
+export interface AdminNotificationDetails extends AdminNotificationMessage {
+  body: string;
+  payloadJson?: string;
+}
+
+export interface AdminNotificationFilters {
+  status?: string;
+  type?: string;
+  userId?: string;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface AdminAutomationJobRun {
+  id: string;
+  jobType: AdminAutomationJobType;
+  status: string;
+  trigger: string;
+  triggeredByUserId?: string;
+  itemsProcessed: number;
+  itemsSucceeded: number;
+  itemsFailed: number;
+  errorMessage?: string;
+  metadataJson?: string;
+  startedAt: string;
+  finishedAt?: string;
+}
+
+export interface AdminAutomationJobFilters {
+  jobType?: string;
+  status?: string;
+  page?: number;
+  pageSize?: number;
 }
 
 function toCents(value: number): number {
@@ -772,6 +1424,8 @@ function mapOrderHistory(history: BackendOrderHistoryDto): OrderHistoryEvent {
     id: String(history.id),
     previousStatus: history.previousStatus ?? undefined,
     status: history.newStatus,
+    source: history.source,
+    changedByUserId: history.changedByUserId ? String(history.changedByUserId) : undefined,
     reason: history.reason ?? undefined,
     createdAt: history.createdAt,
   };
@@ -985,6 +1639,223 @@ function mapAdminDashboard(dto: BackendAdminDashboardDto): DashboardData {
   };
 }
 
+function mapSalesReport(dto: BackendSalesReportDto): AdminSalesReport {
+  return {
+    summary: {
+      grossRevenueCents: toCents(dto.summary.grossRevenue),
+      estimatedNetRevenueCents: toCents(dto.summary.estimatedNetRevenue),
+      totalOrders: dto.summary.totalOrders,
+      averageTicketCents: toCents(dto.summary.averageTicket),
+      itemsSold: dto.summary.itemsSold,
+      discountTotalCents: toCents(dto.summary.discountTotal),
+      shippingTotalCents: toCents(dto.summary.shippingTotal),
+      approvedPayments: dto.summary.approvedPayments,
+      failedOrExpiredPayments: dto.summary.failedOrExpiredPayments,
+      canceledOrders: dto.summary.canceledOrders,
+      refundedOrders: dto.summary.refundedOrders,
+    },
+    items: dto.items.map((item) => ({
+      orderId: String(item.orderId),
+      orderNumber: item.orderNumber,
+      createdAt: item.createdAt,
+      status: item.status,
+      paymentStatus: item.paymentStatus,
+      paymentMethod: item.paymentMethod,
+      customerName: item.customerName,
+      customerEmailMasked: item.customerEmailMasked,
+      couponCode: item.couponCode ?? undefined,
+      subtotalCents: toCents(item.subtotal),
+      discountTotalCents: toCents(item.discountTotal),
+      shippingTotalCents: toCents(item.shippingTotal),
+      totalCents: toCents(item.total),
+    })),
+  };
+}
+
+function mapReportProductMetric(dto: BackendReportProductMetricDto): AdminReportProductMetric {
+  return {
+    productId: String(dto.productId),
+    productName: dto.productName,
+    quantity: dto.quantity,
+    revenueCents: toCents(dto.revenue),
+  };
+}
+
+function mapReportSkuMetric(dto: BackendReportSkuMetricDto): AdminReportSkuMetric {
+  return {
+    productVariantId: String(dto.productVariantId),
+    sku: dto.sku,
+    variantName: dto.variantName,
+    quantity: dto.quantity,
+    revenueCents: toCents(dto.revenue),
+  };
+}
+
+function mapProductReport(dto: BackendProductReportDto): AdminProductReport {
+  return {
+    topProducts: dto.topProducts.map(mapReportProductMetric),
+    productsWithoutSales: dto.productsWithoutSales.map(mapReportProductMetric),
+    topSkus: dto.topSkus.map(mapReportSkuMetric),
+    marginSummary: {
+      isAvailable: dto.marginSummary.isAvailable,
+      message: dto.marginSummary.message,
+      estimatedCostTotalCents: dto.marginSummary.estimatedCostTotal != null ? toCents(dto.marginSummary.estimatedCostTotal) : undefined,
+      estimatedMarginTotalCents: dto.marginSummary.estimatedMarginTotal != null ? toCents(dto.marginSummary.estimatedMarginTotal) : undefined,
+    },
+  };
+}
+
+function mapReportStockItem(dto: BackendReportStockItemDto): AdminReportStockItem {
+  return {
+    productVariantId: String(dto.productVariantId),
+    sku: dto.sku,
+    productName: dto.productName,
+    variantName: dto.variantName,
+    stockQuantity: dto.stockQuantity,
+    reservedQuantity: dto.reservedQuantity,
+    availableQuantity: dto.availableQuantity,
+    minimumStock: dto.minimumStock,
+  };
+}
+
+function mapStockMovementReportItem(dto: BackendStockMovementReportItemDto): AdminStockMovementReportItem {
+  return {
+    id: String(dto.id),
+    productVariantId: String(dto.productVariantId),
+    sku: dto.sku,
+    type: dto.type,
+    quantity: dto.quantity,
+    reason: dto.reason ?? undefined,
+    createdAt: dto.createdAt,
+  };
+}
+
+function mapStockReport(dto: BackendStockReportDto): AdminStockReport {
+  return {
+    lowStock: dto.lowStock.map(mapReportStockItem),
+    outOfStock: dto.outOfStock.map(mapReportStockItem),
+    activeReservations: dto.activeReservations,
+    expiredReservations: dto.expiredReservations,
+    recentMovements: dto.recentMovements.map(mapStockMovementReportItem),
+  };
+}
+
+function mapCustomerReportItem(dto: BackendCustomerReportItemDto): AdminCustomerReportItem {
+  return {
+    userId: String(dto.userId),
+    name: dto.name,
+    emailMasked: dto.emailMasked,
+    cpfMasked: dto.cpfMasked ?? undefined,
+    phoneMasked: dto.phoneMasked ?? undefined,
+    paidOrders: dto.paidOrders,
+    totalSpentCents: toCents(dto.totalSpent),
+    createdAt: dto.createdAt,
+  };
+}
+
+function mapCustomerReport(dto: BackendCustomerReportDto): AdminCustomerReport {
+  return {
+    newCustomers: dto.newCustomers,
+    recurringCustomers: dto.recurringCustomers,
+    marketingConsentCustomers: dto.marketingConsentCustomers,
+    topCustomers: dto.topCustomers.map(mapCustomerReportItem),
+    birthdays: dto.birthdays.map(mapCustomerReportItem),
+  };
+}
+
+function mapCouponSummaryReport(dto: BackendCouponSummaryReportDto): AdminCouponSummaryReport {
+  return {
+    coupons: dto.coupons.map(mapCouponMetric),
+    totalCoupons: dto.totalCoupons,
+    activeCoupons: dto.activeCoupons,
+    reservedUsages: dto.reservedUsages,
+    consumedUsages: dto.consumedUsages,
+    consumedDiscountTotalCents: toCents(dto.consumedDiscountTotal),
+  };
+}
+
+function mapAbandonedCartReport(dto: BackendAbandonedCartReportDto): AdminAbandonedCartReport {
+  return {
+    totalCount: dto.totalCount,
+    items: dto.items.map((item) => ({
+      cartId: String(item.cartId),
+      userId: item.userId ? String(item.userId) : undefined,
+      customerName: item.customerName ?? undefined,
+      customerEmailMasked: item.customerEmailMasked ?? undefined,
+      itemsCount: item.itemsCount,
+      estimatedTotalCents: toCents(item.estimatedTotal),
+      createdAt: item.createdAt,
+      updatedAt: item.updatedAt ?? undefined,
+      expiresAt: item.expiresAt,
+    })),
+  };
+}
+
+function mapReportExport(dto: BackendReportExportDto): AdminReportExport {
+  return {
+    id: String(dto.id),
+    reportType: dto.reportType,
+    format: dto.format,
+    status: dto.status,
+    fileName: dto.fileName,
+    contentType: dto.contentType,
+    includeSensitiveData: dto.includeSensitiveData,
+    requestedByUserId: String(dto.requestedByUserId),
+    createdAt: dto.createdAt,
+    completedAt: dto.completedAt ?? undefined,
+    expiresAt: dto.expiresAt,
+    errorMessage: dto.errorMessage ?? undefined,
+  };
+}
+
+function mapNotificationMessage(dto: BackendNotificationMessageDto): AdminNotificationMessage {
+  return {
+    id: String(dto.id),
+    userId: dto.userId ? String(dto.userId) : undefined,
+    orderId: dto.orderId ? String(dto.orderId) : undefined,
+    cartId: dto.cartId ? String(dto.cartId) : undefined,
+    type: dto.type,
+    channel: dto.channel,
+    status: dto.status,
+    recipientMasked: dto.recipientMasked,
+    subject: dto.subject ?? undefined,
+    dedupeKey: dto.dedupeKey ?? undefined,
+    scheduledAt: dto.scheduledAt,
+    sentAt: dto.sentAt ?? undefined,
+    failedAt: dto.failedAt ?? undefined,
+    canceledAt: dto.canceledAt ?? undefined,
+    attemptCount: dto.attemptCount,
+    lastError: dto.lastError ?? undefined,
+    createdAt: dto.createdAt,
+    updatedAt: dto.updatedAt ?? undefined,
+  };
+}
+
+function mapNotificationDetails(dto: BackendNotificationMessageDetailsDto): AdminNotificationDetails {
+  return {
+    ...mapNotificationMessage(dto),
+    body: dto.body,
+    payloadJson: dto.payloadJson ?? undefined,
+  };
+}
+
+function mapAutomationJobRun(dto: BackendAutomationJobRunDto): AdminAutomationJobRun {
+  return {
+    id: String(dto.id),
+    jobType: dto.jobType,
+    status: dto.status,
+    trigger: dto.trigger,
+    triggeredByUserId: dto.triggeredByUserId ? String(dto.triggeredByUserId) : undefined,
+    itemsProcessed: dto.itemsProcessed,
+    itemsSucceeded: dto.itemsSucceeded,
+    itemsFailed: dto.itemsFailed,
+    errorMessage: dto.errorMessage ?? undefined,
+    metadataJson: dto.metadataJson ?? undefined,
+    startedAt: dto.startedAt,
+    finishedAt: dto.finishedAt ?? undefined,
+  };
+}
+
 function mapAdminAlert(dto: BackendAdminAlertDto): AdminAlert {
   return {
     id: String(dto.id),
@@ -1016,6 +1887,33 @@ function mapAdminUser(dto: BackendAdminUserDto): AdminUser {
   };
 }
 
+function mapAdminPermissionDefinition(dto: BackendAdminPermissionDefinitionDto): AdminPermissionDefinition {
+  return {
+    key: dto.key,
+    area: dto.area,
+    action: dto.action,
+    description: dto.description,
+    defaultForEmployee: dto.defaultForEmployee,
+    isAdminOnly: dto.isAdminOnly,
+    sortOrder: dto.sortOrder,
+  };
+}
+
+function mapEmployeePermissionMatrix(dto: BackendEmployeePermissionMatrixDto): AdminEmployeePermissionMatrix {
+  return {
+    userId: String(dto.userId),
+    name: dto.name,
+    email: dto.email,
+    isActive: dto.isActive,
+    permissions: dto.permissions.map((permission) => ({
+      key: permission.key,
+      isAllowed: permission.isAllowed,
+      isExplicit: permission.isExplicit,
+      isAdminOnly: permission.isAdminOnly,
+    })),
+  };
+}
+
 function mapAuditEntry(dto: BackendAuditLogDto): AuditEntry {
   const actor = dto.actorUserId ? `Usuario #${dto.actorUserId}` : (dto.actorRole || 'Sistema');
   const target = dto.entityId ? `${dto.entityName} #${dto.entityId}` : dto.entityName;
@@ -1023,11 +1921,27 @@ function mapAuditEntry(dto: BackendAuditLogDto): AuditEntry {
 
   return {
     id: String(dto.id),
+    actorUserId: dto.actorUserId ? String(dto.actorUserId) : undefined,
+    actorRole: dto.actorRole ?? undefined,
     actor,
     action: dto.action,
+    entityName: dto.entityName,
+    entityId: dto.entityId ?? undefined,
     target,
     at: dto.createdAt,
     meta: metaParts.join(' · ') || undefined,
+    reason: dto.reason ?? undefined,
+    ipAddress: dto.ipAddress ?? undefined,
+  };
+}
+
+function mapAuditEntryDetails(dto: BackendAuditLogDetailsDto): AuditEntry {
+  return {
+    ...mapAuditEntry(dto),
+    oldValueJson: dto.oldValueJson ?? undefined,
+    newValueJson: dto.newValueJson ?? undefined,
+    userAgent: dto.userAgent ?? undefined,
+    correlationId: dto.correlationId ?? undefined,
   };
 }
 
@@ -1066,6 +1980,30 @@ function mapAdminCustomerDetail(dto: BackendAdminCustomerDetailDto): AdminCustom
   };
 }
 
+function mapCustomerAddress(dto: BackendCustomerAddressDto): Address {
+  return {
+    id: String(dto.id),
+    label: dto.nickname || dto.type || 'Endereço',
+    recipient: dto.recipientName,
+    zip: dto.zipCode,
+    street: dto.street,
+    number: dto.number,
+    complement: dto.complement ?? undefined,
+    district: dto.district,
+    city: dto.city,
+    state: dto.state,
+    isDefault: dto.isDefault,
+  };
+}
+
+function mapCommerceScope(dto: BackendCouponScopeDto): AdminCommerceScope {
+  return {
+    scopeType: dto.scopeType,
+    targetId: dto.targetId != null ? String(dto.targetId) : undefined,
+    isExcluded: dto.isExcluded,
+  };
+}
+
 function mapCoupon(dto: BackendCouponDto): Coupon {
   return {
     id: String(dto.id),
@@ -1088,6 +2026,10 @@ function mapCoupon(dto: BackendCouponDto): Coupon {
     expiresAt: dto.endsAt ?? undefined,
     archivedAt: dto.archivedAt ?? undefined,
     archiveReason: dto.archiveReason ?? undefined,
+    createdAt: dto.createdAt,
+    updatedAt: dto.updatedAt ?? undefined,
+    scopes: dto.scopes.map(mapCommerceScope),
+    allowedCustomerUserIds: dto.allowedCustomerUserIds.map(String),
   };
 }
 
@@ -1109,6 +2051,53 @@ function mapPromotion(dto: BackendPromotionDto): Promotion {
     productCount: dto.scopes.length,
     archivedAt: dto.archivedAt ?? undefined,
     archiveReason: dto.archiveReason ?? undefined,
+    createdAt: dto.createdAt,
+    updatedAt: dto.updatedAt ?? undefined,
+    scopes: dto.scopes.map(mapCommerceScope),
+  };
+}
+
+function mapCouponUsage(dto: BackendCouponUsageDto): AdminCouponUsage {
+  return {
+    id: String(dto.id),
+    couponId: String(dto.couponId),
+    userId: String(dto.userId),
+    orderId: dto.orderId ? String(dto.orderId) : undefined,
+    cartId: dto.cartId ? String(dto.cartId) : undefined,
+    status: dto.status,
+    subtotalCents: toCents(dto.subtotal),
+    discountTotalCents: toCents(dto.discountTotal),
+    shippingDiscountCents: toCents(dto.shippingDiscount),
+    totalAfterDiscountCents: toCents(dto.totalAfterDiscount),
+    reservedAt: dto.reservedAt,
+    consumedAt: dto.consumedAt ?? undefined,
+    releasedAt: dto.releasedAt ?? undefined,
+    expiredAt: dto.expiredAt ?? undefined,
+    expiresAt: dto.expiresAt,
+    releaseReason: dto.releaseReason ?? undefined,
+  };
+}
+
+function mapCouponReport(dto: BackendCouponReportDto): AdminCouponReport {
+  return {
+    couponId: String(dto.couponId),
+    code: dto.code,
+    reservedCount: dto.reservedCount,
+    consumedCount: dto.consumedCount,
+    releasedCount: dto.releasedCount,
+    discountTotalCents: toCents(dto.discountTotal),
+    revenueTotalCents: toCents(dto.revenueTotal),
+    averageTicketCents: toCents(dto.averageTicket),
+  };
+}
+
+function mapPromotionReport(dto: BackendPromotionReportDto): AdminPromotionReport {
+  return {
+    promotionId: String(dto.promotionId),
+    name: dto.name,
+    status: dto.status,
+    isCurrentlyEligibleByDate: dto.isCurrentlyEligibleByDate,
+    message: dto.message,
   };
 }
 
@@ -1246,6 +2235,22 @@ function mapAdminProductVariant(dto: BackendAdminProductVariantDto): AdminProduc
   };
 }
 
+function mapProductPriceHistory(dto: BackendProductPriceHistoryDto): AdminProductPriceHistory {
+  return {
+    id: String(dto.id),
+    productVariantId: String(dto.productVariantId),
+    sku: dto.sku,
+    oldPriceCents: toCents(dto.oldPrice),
+    newPriceCents: toCents(dto.newPrice),
+    oldPromotionalPriceCents: dto.oldPromotionalPrice != null ? toCents(dto.oldPromotionalPrice) : undefined,
+    newPromotionalPriceCents: dto.newPromotionalPrice != null ? toCents(dto.newPromotionalPrice) : undefined,
+    oldCostPriceCents: dto.oldCostPrice != null ? toCents(dto.oldCostPrice) : undefined,
+    newCostPriceCents: dto.newCostPrice != null ? toCents(dto.newCostPrice) : undefined,
+    changedByUserId: dto.changedByUserId ? String(dto.changedByUserId) : undefined,
+    changedAt: dto.changedAt,
+  };
+}
+
 function mapAdminProduct(dto: BackendAdminProductDto): AdminProduct {
   const images = dto.images.map(mapAdminProductImage);
 
@@ -1353,6 +2358,19 @@ function optionalText(value: string | undefined): string | undefined {
   return normalized || undefined;
 }
 
+function toCategoryBody(input: AdminCategoryInput): BackendSaveCategoryDto {
+  return {
+    name: input.name.trim(),
+    slug: optionalText(input.slug),
+    description: optionalText(input.description),
+    parentCategoryId: input.parentCategoryId ? Number(input.parentCategoryId) : undefined,
+    displayOrder: input.displayOrder,
+    isActive: input.isActive,
+    seoTitle: optionalText(input.seoTitle),
+    seoDescription: optionalText(input.seoDescription),
+  };
+}
+
 function toVariantBody(input: AdminProductVariantInput): BackendSaveProductVariantDto {
   return {
     sku: input.sku.trim(),
@@ -1412,6 +2430,27 @@ function toImageBody(input: AdminProductImageInput): BackendSaveProductImageDto 
   };
 }
 
+function toScopeBody(input: AdminCouponScopeInput): BackendCouponScopeDto {
+  const targetId = input.targetId ? Number(input.targetId) : undefined;
+
+  return {
+    scopeType: input.scopeType,
+    targetId: Number.isFinite(targetId) ? targetId : null,
+    isExcluded: input.isExcluded,
+  };
+}
+
+function toScopeBodies(scopes: AdminCouponScopeInput[] | undefined): BackendCouponScopeDto[] {
+  if (!scopes?.length) return [{ scopeType: 'Order', targetId: null, isExcluded: false }];
+  return scopes.map(toScopeBody);
+}
+
+function toAllowedCustomerIds(ids: string[] | undefined): number[] {
+  return (ids ?? [])
+    .map((id) => Number(id))
+    .filter(Number.isFinite);
+}
+
 function toCouponBody(input: AdminCouponInput) {
   return {
     code: input.code.trim(),
@@ -1428,8 +2467,8 @@ function toCouponBody(input: AdminCouponInput) {
     isFirstPurchaseOnly: input.isFirstPurchaseOnly,
     isPrivate: input.isPrivate,
     canApplyToPromotionalItems: input.canApplyToPromotionalItems,
-    scopes: [{ scopeType: 'Order', targetId: null, isExcluded: false }],
-    allowedCustomerUserIds: [],
+    scopes: toScopeBodies(input.scopes),
+    allowedCustomerUserIds: toAllowedCustomerIds(input.allowedCustomerUserIds),
   };
 }
 
@@ -1442,7 +2481,7 @@ function toPromotionBody(input: AdminPromotionInput) {
     minimumOrderValue: input.minimumOrderValueCents != null ? input.minimumOrderValueCents / 100 : undefined,
     startsAt: input.startsAt,
     endsAt: input.endsAt || undefined,
-    scopes: [{ scopeType: 'Order', targetId: null, isExcluded: false }],
+    scopes: toScopeBodies(input.scopes),
   };
 }
 
@@ -1557,8 +2596,44 @@ function mockAdminCustomerDetail(id: string): AdminCustomerDetail {
   };
 }
 
+function mockCustomerAddresses(customerId: string): Address[] {
+  const customer = mockAdminCustomerDetail(customerId);
+
+  return [
+    {
+      id: `${customer.id}-addr-1`,
+      label: 'Principal',
+      recipient: customer.name,
+      zip: '01310930',
+      street: 'Avenida Paulista',
+      number: '1000',
+      complement: 'Apto 84',
+      district: 'Bela Vista',
+      city: 'São Paulo',
+      state: 'SP',
+      isDefault: true,
+    },
+    {
+      id: `${customer.id}-addr-2`,
+      label: 'Trabalho',
+      recipient: customer.name,
+      zip: '30140071',
+      street: 'Rua dos Timbiras',
+      number: '560',
+      district: 'Funcionários',
+      city: 'Belo Horizonte',
+      state: 'MG',
+      isDefault: false,
+    },
+  ];
+}
+
+let mockCategoryStore: AdminCatalogCategory[] | null = null;
+
 function mockAdminCategories(): AdminCatalogCategory[] {
-  return categories.map((category, index) => ({
+  if (mockCategoryStore) return mockCategoryStore;
+
+  mockCategoryStore = categories.map((category, index) => ({
     id: String(index + 1),
     name: category.name,
     slug: category.slug,
@@ -1567,6 +2642,8 @@ function mockAdminCategories(): AdminCatalogCategory[] {
     isActive: true,
     createdAt: new Date(2026, 0, index + 1).toISOString(),
   }));
+
+  return mockCategoryStore;
 }
 
 function mockAdminProducts(): AdminProduct[] {
@@ -1624,6 +2701,29 @@ function mockAdminProducts(): AdminProduct[] {
       isAvailable: product.variants.some((variant) => variant.stock > 0),
       createdAt: product.createdAt,
     };
+  });
+}
+
+function mockProductPriceHistory(productId: string): AdminProductPriceHistory[] {
+  const product = mockAdminProducts().find((item) => item.id === productId) ?? mockAdminProducts()[0];
+
+  return product.variants.slice(0, 6).flatMap((variant, index) => {
+    const changedAt = new Date(Date.now() - (index + 1) * 86400000).toISOString();
+    const oldPriceCents = variant.priceCents + 1500;
+
+    return [{
+      id: `price-${variant.id}-${index}`,
+      productVariantId: variant.id,
+      sku: variant.sku,
+      oldPriceCents,
+      newPriceCents: variant.priceCents,
+      oldPromotionalPriceCents: variant.promotionalPriceCents ? variant.promotionalPriceCents + 1000 : undefined,
+      newPromotionalPriceCents: variant.promotionalPriceCents,
+      oldCostPriceCents: variant.costPriceCents ? variant.costPriceCents + 500 : undefined,
+      newCostPriceCents: variant.costPriceCents,
+      changedByUserId: 'mock-admin',
+      changedAt,
+    }];
   });
 }
 
@@ -1789,6 +2889,751 @@ function withMockHistory(order: Order, status: OrderStatus, reason: string): Ord
   };
 }
 
+function toBackendPaymentMethod(method: PaymentMethod): string {
+  if (method === 'credit_card') return 'CreditCard';
+  if (method === 'boleto') return 'Boleto';
+  return 'Pix';
+}
+
+function isRevenueStatus(status: OrderStatus): boolean {
+  return status === 'paid' || status === 'processing' || status === 'shipped' || status === 'delivered';
+}
+
+function mockSalesReport(filters: AdminSalesReportFilters = {}): AdminSalesReport {
+  const filteredOrders = orders.filter((order) => {
+    const createdAt = new Date(order.createdAt).getTime();
+    const start = filters.startDate ? new Date(filters.startDate).getTime() : undefined;
+    const end = filters.endDate ? new Date(filters.endDate).getTime() + 86400000 - 1 : undefined;
+    if (start && createdAt < start) return false;
+    if (end && createdAt > end) return false;
+    if (filters.orderStatus && toBackendOrderStatus(order.status) !== filters.orderStatus) return false;
+    if (filters.paymentMethod && toBackendPaymentMethod(order.paymentMethod) !== filters.paymentMethod) return false;
+    if (filters.customerId && order.id !== filters.customerId) return false;
+    if (filters.couponCode && order.couponCode?.toUpperCase() !== filters.couponCode.toUpperCase()) return false;
+    if (filters.minValue != null && order.totalCents < toCents(filters.minValue)) return false;
+    if (filters.maxValue != null && order.totalCents > toCents(filters.maxValue)) return false;
+    return true;
+  });
+  const revenueOrders = filteredOrders.filter((order) => isRevenueStatus(order.status));
+  const grossRevenueCents = revenueOrders.reduce((sum, order) => sum + order.totalCents, 0);
+  const totalOrders = revenueOrders.length;
+
+  return {
+    summary: {
+      grossRevenueCents,
+      estimatedNetRevenueCents: grossRevenueCents,
+      totalOrders: filteredOrders.length,
+      averageTicketCents: totalOrders ? Math.round(grossRevenueCents / totalOrders) : 0,
+      itemsSold: revenueOrders.flatMap((order) => order.items).reduce((sum, item) => sum + item.quantity, 0),
+      discountTotalCents: filteredOrders.reduce((sum, order) => sum + order.discountCents, 0),
+      shippingTotalCents: filteredOrders.reduce((sum, order) => sum + order.shippingCents, 0),
+      approvedPayments: revenueOrders.length,
+      failedOrExpiredPayments: filteredOrders.filter((order) => order.status === 'pending_payment' && order.paymentStatus !== 'Approved').length,
+      canceledOrders: filteredOrders.filter((order) => order.status === 'canceled').length,
+      refundedOrders: filteredOrders.filter((order) => order.status === 'refunded').length,
+    },
+    items: filteredOrders.map((order) => ({
+      orderId: order.id,
+      orderNumber: order.number,
+      createdAt: order.createdAt,
+      status: toBackendOrderStatus(order.status),
+      paymentStatus: order.paymentStatus ?? (isRevenueStatus(order.status) ? 'Approved' : 'Pending'),
+      paymentMethod: toBackendPaymentMethod(order.paymentMethod),
+      customerName: order.shippingAddress.recipient || 'Cliente',
+      customerEmailMasked: 'cliente***@email.com',
+      couponCode: order.couponCode,
+      subtotalCents: order.subtotalCents,
+      discountTotalCents: order.discountCents,
+      shippingTotalCents: order.shippingCents,
+      totalCents: order.totalCents,
+    })),
+  };
+}
+
+function mockProductReport(includeMargin = false): AdminProductReport {
+  const adminProducts = mockAdminProducts();
+  const topProducts = adminProducts.slice(0, 10).map((product, index) => {
+    const quantity = Math.max(0, 14 - index * 2);
+    const price = product.variants[0]?.promotionalPriceCents ?? product.variants[0]?.priceCents ?? 0;
+    return {
+      productId: product.id,
+      productName: product.name,
+      quantity,
+      revenueCents: quantity * price,
+    };
+  });
+  const topSkus = adminProducts.flatMap((product) => product.variants.map((variant) => ({
+    productVariantId: variant.id,
+    sku: variant.sku,
+    variantName: variant.name,
+    quantity: Math.max(1, Math.min(12, variant.stockQuantity)),
+    revenueCents: Math.max(1, Math.min(12, variant.stockQuantity)) * (variant.promotionalPriceCents ?? variant.priceCents),
+  }))).slice(0, 12);
+
+  return {
+    topProducts,
+    productsWithoutSales: adminProducts.slice(-5).map((product) => ({
+      productId: product.id,
+      productName: product.name,
+      quantity: 0,
+      revenueCents: 0,
+    })),
+    topSkus,
+    marginSummary: includeMargin
+      ? {
+          isAvailable: true,
+          message: 'Margem estimada disponível no modo mock.',
+          estimatedCostTotalCents: Math.round(topProducts.reduce((sum, item) => sum + item.revenueCents, 0) * 0.58),
+          estimatedMarginTotalCents: Math.round(topProducts.reduce((sum, item) => sum + item.revenueCents, 0) * 0.42),
+        }
+      : {
+          isAvailable: false,
+          message: 'Margem disponível apenas para admin e SKUs com custo cadastrado.',
+        },
+  };
+}
+
+function mockStockReport(): AdminStockReport {
+  const inventory = mockInventorySummaries();
+
+  return {
+    lowStock: inventory.filter((item) => item.isLowStock).map((item) => ({
+      productVariantId: item.variantId,
+      sku: item.sku,
+      productName: item.productName,
+      variantName: item.variantName,
+      stockQuantity: item.stockQuantity,
+      reservedQuantity: item.reservedQuantity,
+      availableQuantity: item.availableQuantity,
+      minimumStock: item.minimumStock,
+    })),
+    outOfStock: inventory.filter((item) => item.availableQuantity <= 0).map((item) => ({
+      productVariantId: item.variantId,
+      sku: item.sku,
+      productName: item.productName,
+      variantName: item.variantName,
+      stockQuantity: item.stockQuantity,
+      reservedQuantity: item.reservedQuantity,
+      availableQuantity: item.availableQuantity,
+      minimumStock: item.minimumStock,
+    })),
+    activeReservations: mockStockReservations(undefined, 'Active').length,
+    expiredReservations: mockStockReservations(undefined, 'Expired').length,
+    recentMovements: mockStockMovements().slice(0, 12).map((movement) => ({
+      id: movement.id,
+      productVariantId: movement.variantId,
+      sku: movement.sku,
+      type: movement.type,
+      quantity: movement.quantity,
+      reason: movement.reason,
+      createdAt: movement.createdAt,
+    })),
+  };
+}
+
+function mockCustomerReport(): AdminCustomerReport {
+  const customers = mockAdminCustomers();
+
+  return {
+    newCustomers: customers.length,
+    recurringCustomers: Math.max(0, customers.length - 1),
+    marketingConsentCustomers: customers.filter((customer) => customer.active).length,
+    topCustomers: customers.map((customer, index) => ({
+      userId: customer.userId,
+      name: customer.name,
+      emailMasked: customer.email.replace(/^(.{2}).*(@.*)$/, '$1***$2'),
+      cpfMasked: customer.cpfMasked,
+      phoneMasked: customer.phoneMasked,
+      paidOrders: index + 1,
+      totalSpentCents: 18990 * (index + 1),
+      createdAt: customer.createdAt,
+    })),
+    birthdays: customers.slice(0, 5).map((customer, index) => ({
+      userId: customer.userId,
+      name: customer.name,
+      emailMasked: customer.email.replace(/^(.{2}).*(@.*)$/, '$1***$2'),
+      cpfMasked: customer.cpfMasked,
+      phoneMasked: customer.phoneMasked,
+      paidOrders: index + 1,
+      totalSpentCents: 12990 * (index + 1),
+      createdAt: customer.createdAt,
+    })),
+  };
+}
+
+function mockCouponSummaryReport(): AdminCouponSummaryReport {
+  const metrics = coupons.map((coupon) => ({
+    couponId: coupon.id,
+    code: coupon.code,
+    status: coupon.status ?? (coupon.active ? 'Active' : 'Inactive'),
+    reservedCount: Math.max(0, Math.floor(coupon.usageCount / 2)),
+    consumedCount: coupon.usageCount,
+    discountTotalCents: coupon.usageCount * 1200,
+  }));
+
+  return {
+    coupons: metrics,
+    totalCoupons: coupons.length,
+    activeCoupons: coupons.filter((coupon) => coupon.active).length,
+    reservedUsages: metrics.reduce((sum, item) => sum + item.reservedCount, 0),
+    consumedUsages: metrics.reduce((sum, item) => sum + item.consumedCount, 0),
+    consumedDiscountTotalCents: metrics.reduce((sum, item) => sum + item.discountTotalCents, 0),
+  };
+}
+
+function normalizedCoupon(coupon: Coupon): Coupon {
+  const status = coupon.status ?? (coupon.active ? 'Active' : 'Inactive');
+
+  return {
+    ...coupon,
+    name: coupon.name ?? coupon.code,
+    status,
+    active: status === 'Active',
+    startsAt: coupon.startsAt ?? new Date(2026, 0, 1).toISOString(),
+    createdAt: coupon.createdAt ?? new Date(2026, 0, 1).toISOString(),
+    scopes: coupon.scopes?.length ? coupon.scopes : [{ scopeType: 'Order', isExcluded: false }],
+    allowedCustomerUserIds: coupon.allowedCustomerUserIds ?? [],
+  };
+}
+
+function normalizedPromotion(promotion: Promotion): Promotion {
+  const status = promotion.status ?? (promotion.active ? 'Active' : 'Inactive');
+
+  return {
+    ...promotion,
+    status,
+    active: status === 'Active',
+    createdAt: promotion.createdAt ?? promotion.startsAt,
+    scopes: promotion.scopes?.length ? promotion.scopes : [{ scopeType: 'Order', isExcluded: false }],
+  };
+}
+
+function filterMockCoupons(filters: { search?: string; status?: string } = {}): Coupon[] {
+  const search = filters.search?.trim().toLowerCase();
+
+  return coupons.map(normalizedCoupon).filter((coupon) => {
+    if (filters.status && coupon.status !== filters.status) return false;
+    if (!search) return true;
+    return coupon.code.toLowerCase().includes(search) ||
+      (coupon.name ?? '').toLowerCase().includes(search) ||
+      coupon.description.toLowerCase().includes(search);
+  });
+}
+
+function filterMockPromotions(filters: { search?: string; status?: string } = {}): Promotion[] {
+  const search = filters.search?.trim().toLowerCase();
+
+  return promotions.map(normalizedPromotion).filter((promotion) => {
+    if (filters.status && promotion.status !== filters.status) return false;
+    if (!search) return true;
+    return promotion.name.toLowerCase().includes(search) || (promotion.description ?? '').toLowerCase().includes(search);
+  });
+}
+
+function mockCouponById(id: string): Coupon {
+  const coupon = filterMockCoupons().find((item) => item.id === id);
+  if (!coupon) throw new Error('Cupom nao encontrado.');
+  return coupon;
+}
+
+function mockPromotionById(id: string): Promotion {
+  const promotion = filterMockPromotions().find((item) => item.id === id);
+  if (!promotion) throw new Error('Promocao nao encontrada.');
+  return promotion;
+}
+
+function mockCouponFromInput(input: AdminCouponInput, id = `cpn-${Date.now()}`): Coupon {
+  const now = new Date().toISOString();
+
+  return {
+    id,
+    code: input.code.trim().toUpperCase(),
+    name: input.name.trim(),
+    description: input.description?.trim() || input.name.trim(),
+    type: input.type,
+    value: input.type === 'Percentage' ? input.discountValueCents : input.discountValueCents,
+    active: false,
+    status: 'Inactive',
+    startsAt: input.startsAt,
+    usageCount: 0,
+    usageLimit: input.totalUsageLimit,
+    usageLimitPerCustomer: input.usageLimitPerCustomer,
+    minimumOrderValueCents: input.minimumOrderValueCents,
+    maxDiscountValueCents: input.maxDiscountValueCents,
+    isFirstPurchaseOnly: input.isFirstPurchaseOnly,
+    isPrivate: input.isPrivate,
+    canApplyToPromotionalItems: input.canApplyToPromotionalItems,
+    expiresAt: input.endsAt,
+    createdAt: now,
+    updatedAt: now,
+    scopes: input.scopes?.length ? input.scopes : [{ scopeType: 'Order', isExcluded: false }],
+    allowedCustomerUserIds: input.allowedCustomerUserIds ?? [],
+  };
+}
+
+function mockPromotionFromInput(input: AdminPromotionInput, id = `promo-${Date.now()}`): Promotion {
+  const now = new Date().toISOString();
+
+  return {
+    id,
+    name: input.name.trim(),
+    description: input.description?.trim() || undefined,
+    discountPct: input.type === 'Percentage' ? input.discountValueCents : 0,
+    type: input.type,
+    discountValue: input.discountValueCents,
+    minimumOrderValueCents: input.minimumOrderValueCents,
+    active: false,
+    status: 'Inactive',
+    startsAt: input.startsAt,
+    endsAt: input.endsAt,
+    productCount: input.scopes?.length ?? 1,
+    createdAt: now,
+    updatedAt: now,
+    scopes: input.scopes?.length ? input.scopes : [{ scopeType: 'Order', isExcluded: false }],
+  };
+}
+
+function mockCouponUsages(couponId: string, filters: AdminCouponUsageFilters = {}): AdminCouponUsage[] {
+  const coupon = mockCouponById(couponId);
+  const base = [
+    { status: 'Consumed', offset: 30, orderId: '1042' },
+    { status: 'Reserved', offset: 3, cartId: 'cart-219' },
+    { status: 'Released', offset: 70, orderId: '1038', releaseReason: 'Carrinho expirado' },
+  ];
+
+  return base
+    .map((item, index) => {
+      const subtotalCents = 18990 + index * 6000;
+      const discountTotalCents = coupon.type === 'Percentage'
+        ? Math.round(subtotalCents * ((coupon.value || 0) / 100))
+        : Math.min(coupon.value || 0, subtotalCents);
+      const createdAt = new Date(Date.now() - item.offset * 60000).toISOString();
+
+      return {
+        id: `${couponId}-usage-${index + 1}`,
+        couponId,
+        userId: String(index + 1),
+        orderId: item.orderId,
+        cartId: item.cartId,
+        status: item.status,
+        subtotalCents,
+        discountTotalCents,
+        shippingDiscountCents: coupon.type === 'FreeShipping' ? 2990 : 0,
+        totalAfterDiscountCents: Math.max(0, subtotalCents - discountTotalCents),
+        reservedAt: createdAt,
+        consumedAt: item.status === 'Consumed' ? createdAt : undefined,
+        releasedAt: item.status === 'Released' ? createdAt : undefined,
+        expiresAt: new Date(Date.now() + 60 * 60000).toISOString(),
+        releaseReason: item.releaseReason,
+      };
+    })
+    .filter((usage) => !filters.status || usage.status === filters.status);
+}
+
+function mockCouponReport(couponId: string): AdminCouponReport {
+  const coupon = mockCouponById(couponId);
+  const usages = mockCouponUsages(couponId);
+  const consumed = usages.filter((usage) => usage.status === 'Consumed');
+  const revenueTotalCents = consumed.reduce((sum, usage) => sum + usage.totalAfterDiscountCents, 0);
+
+  return {
+    couponId,
+    code: coupon.code,
+    reservedCount: usages.filter((usage) => usage.status === 'Reserved').length,
+    consumedCount: Math.max(consumed.length, coupon.usageCount),
+    releasedCount: usages.filter((usage) => usage.status === 'Released').length,
+    discountTotalCents: Math.max(consumed.reduce((sum, usage) => sum + usage.discountTotalCents, 0), coupon.usageCount * 1200),
+    revenueTotalCents,
+    averageTicketCents: consumed.length ? Math.round(revenueTotalCents / consumed.length) : 0,
+  };
+}
+
+function mockPromotionReport(promotionId: string): AdminPromotionReport {
+  const promotion = mockPromotionById(promotionId);
+  const now = Date.now();
+  const startsAt = new Date(promotion.startsAt).getTime();
+  const endsAt = promotion.endsAt ? new Date(promotion.endsAt).getTime() : undefined;
+  const isCurrentlyEligibleByDate = startsAt <= now && (endsAt == null || endsAt >= now);
+
+  return {
+    promotionId,
+    name: promotion.name,
+    status: promotion.status ?? (promotion.active ? 'Active' : 'Inactive'),
+    isCurrentlyEligibleByDate,
+    message: isCurrentlyEligibleByDate
+      ? 'Promoção dentro da janela de validade.'
+      : 'Promoção fora da janela de validade.',
+  };
+}
+
+function mockAbandonedCartReport(olderThanHours = 24): AdminAbandonedCartReport {
+  const items = products.slice(0, 4).map((product, index) => ({
+    cartId: `mock-cart-${index + 1}`,
+    userId: index % 2 === 0 ? `mock-user-${index + 1}` : undefined,
+    customerName: index % 2 === 0 ? `Cliente ${index + 1}` : undefined,
+    customerEmailMasked: index % 2 === 0 ? `cl***${index + 1}@email.com` : undefined,
+    itemsCount: index + 1,
+    estimatedTotalCents: product.priceFromCents * (index + 1),
+    createdAt: new Date(Date.now() - (olderThanHours + index + 1) * 3600000).toISOString(),
+    updatedAt: new Date(Date.now() - (olderThanHours + index) * 3600000).toISOString(),
+    expiresAt: new Date(Date.now() + (24 - index) * 3600000).toISOString(),
+  }));
+
+  return {
+    totalCount: items.length,
+    items,
+  };
+}
+
+const mockReportExports = new Map<string, AdminReportExport>();
+
+function mockReportExport(input: AdminReportExportRequest): AdminReportExport {
+  const now = new Date();
+  const exportRecord: AdminReportExport = {
+    id: String(mockReportExports.size + 1),
+    reportType: input.reportType,
+    format: input.format,
+    status: 'Completed',
+    fileName: `${input.reportType.toLowerCase()}-${now.toISOString().replace(/\D/g, '').slice(0, 14)}.csv`,
+    contentType: 'text/csv; charset=utf-8',
+    includeSensitiveData: input.includeSensitiveData,
+    requestedByUserId: 'mock-admin',
+    createdAt: now.toISOString(),
+    completedAt: now.toISOString(),
+    expiresAt: new Date(now.getTime() + 24 * 3600000).toISOString(),
+  };
+  mockReportExports.set(exportRecord.id, exportRecord);
+  return exportRecord;
+}
+
+function mockPermission(
+  key: string,
+  area: string,
+  action: string,
+  description: string,
+  defaultForEmployee: boolean,
+  isAdminOnly: boolean,
+  sortOrder: number,
+): AdminPermissionDefinition {
+  return { key, area, action, description, defaultForEmployee, isAdminOnly, sortOrder };
+}
+
+const mockPermissionCatalog: AdminPermissionDefinition[] = [
+  mockPermission('Dashboard.View', 'Dashboard', 'Visualizar painel', 'Acesso aos indicadores operacionais.', true, false, 10),
+  mockPermission('Orders.View', 'Pedidos', 'Visualizar pedidos', 'Lista, detalhe e histórico de pedidos.', true, false, 100),
+  mockPermission('Orders.Payments.View', 'Pedidos', 'Visualizar pagamentos', 'Tentativas e status de pagamento do pedido.', true, false, 110),
+  mockPermission('Orders.Status.Update', 'Pedidos', 'Atualizar status', 'Alteração operacional de status com auditoria.', true, false, 120),
+  mockPermission('Orders.Cancel', 'Pedidos', 'Cancelar pedido', 'Cancelamento com justificativa e liberação de reservas.', false, false, 130),
+  mockPermission('Orders.Shipping.Update', 'Pedidos', 'Atualizar envio', 'Registro e edição de rastreio.', true, false, 140),
+  mockPermission('Orders.Fiscal.View', 'Pedidos', 'Visualizar prévia fiscal', 'Prévia impressa e XML de rascunho.', false, false, 150),
+  mockPermission('Orders.Webhooks.View', 'Pedidos', 'Visualizar webhooks', 'Eventos técnicos de pagamento.', false, false, 160),
+  mockPermission('Catalog.Categories.View', 'Catálogo', 'Visualizar categorias', 'Consulta de categorias administrativas.', true, false, 200),
+  mockPermission('Catalog.Categories.Manage', 'Catálogo', 'Gerenciar categorias', 'Criação e edição de categorias.', true, false, 210),
+  mockPermission('Catalog.Categories.Archive', 'Catálogo', 'Arquivar categorias', 'Arquivamento lógico de categoria.', false, false, 220),
+  mockPermission('Catalog.Products.View', 'Catálogo', 'Visualizar produtos', 'Consulta de produtos e SKUs.', true, false, 230),
+  mockPermission('Catalog.Products.Manage', 'Catálogo', 'Gerenciar produtos', 'Criação, edição, status e destaque de produtos.', true, false, 240),
+  mockPermission('Catalog.Products.Archive', 'Catálogo', 'Arquivar produtos', 'Arquivamento lógico de produtos.', false, false, 250),
+  mockPermission('Catalog.Products.PriceHistory.View', 'Catálogo', 'Histórico de preço', 'Consulta de histórico de preço por SKU.', false, false, 260),
+  mockPermission('Catalog.Variants.Manage', 'Catálogo', 'Gerenciar variações', 'Criação, edição e inativação de SKUs.', true, false, 270),
+  mockPermission('Catalog.Images.Manage', 'Catálogo', 'Gerenciar imagens', 'Inserção, edição e remoção de imagens.', true, false, 280),
+  mockPermission('Catalog.Inventory.View', 'Estoque', 'Visualizar estoque', 'Consulta de saldo, movimentos e reservas.', true, false, 300),
+  mockPermission('Catalog.Inventory.Adjust', 'Estoque', 'Ajustar estoque', 'Entradas, saídas e correções auditáveis.', true, false, 310),
+  mockPermission('Catalog.Inventory.Reservations.Release', 'Estoque', 'Liberar reservas', 'Liberação manual de reserva de estoque.', true, false, 320),
+  mockPermission('Storage.Images.Upload', 'Storage', 'Enviar imagens', 'Geração de URL assinada para upload.', true, false, 330),
+  mockPermission('Customers.View', 'Clientes', 'Visualizar clientes', 'Consulta administrativa com dados minimizados.', false, false, 400),
+  mockPermission('Customers.Status.Update', 'Clientes', 'Alterar status', 'Ativar ou inativar cliente.', false, false, 410),
+  mockPermission('Customers.Anonymize', 'Clientes', 'Anonimizar cliente', 'Ação LGPD sensível e irreversível.', false, false, 420),
+  mockPermission('Customers.Addresses.View', 'Clientes', 'Visualizar endereços', 'Consulta de endereços administrativos.', false, false, 430),
+  mockPermission('Coupons.View', 'Cupons', 'Visualizar cupons', 'Consulta de cupons e usos.', true, false, 500),
+  mockPermission('Coupons.Manage', 'Cupons', 'Gerenciar cupons', 'Criação e edição de cupons.', false, false, 510),
+  mockPermission('Coupons.Status.Update', 'Cupons', 'Alterar status', 'Ativar ou inativar cupom.', false, false, 520),
+  mockPermission('Coupons.Archive', 'Cupons', 'Arquivar cupom', 'Arquivamento auditável de cupom.', false, false, 530),
+  mockPermission('Coupons.Report.View', 'Cupons', 'Visualizar relatório', 'Relatório individual de cupom.', false, false, 540),
+  mockPermission('Promotions.View', 'Promoções', 'Visualizar promoções', 'Consulta de campanhas automáticas.', true, false, 600),
+  mockPermission('Promotions.Manage', 'Promoções', 'Gerenciar promoções', 'Criação e edição de campanhas.', false, false, 610),
+  mockPermission('Promotions.Status.Update', 'Promoções', 'Alterar status', 'Ativar ou inativar campanha.', false, false, 620),
+  mockPermission('Promotions.Archive', 'Promoções', 'Arquivar promoção', 'Arquivamento auditável de campanha.', false, false, 630),
+  mockPermission('Promotions.Report.View', 'Promoções', 'Visualizar relatório', 'Relatório individual de campanha.', false, false, 640),
+  mockPermission('Reports.Sales.View', 'Relatórios', 'Vendas', 'Relatório de vendas.', true, false, 700),
+  mockPermission('Reports.Products.View', 'Relatórios', 'Produtos', 'Relatório de produtos.', true, false, 710),
+  mockPermission('Reports.Stock.View', 'Relatórios', 'Estoque', 'Relatório de estoque.', true, false, 720),
+  mockPermission('Reports.Customers.View', 'Relatórios', 'Clientes', 'Relatório de clientes e recorrência.', false, false, 730),
+  mockPermission('Reports.Coupons.View', 'Relatórios', 'Cupons', 'Relatório consolidado de cupons.', true, false, 740),
+  mockPermission('Reports.AbandonedCarts.View', 'Relatórios', 'Carrinhos abandonados', 'Relatório de carrinhos abandonados.', true, false, 750),
+  mockPermission('Reports.Exports.Manage', 'Relatórios', 'Exportações', 'Criar, consultar e baixar exportações permitidas.', true, false, 760),
+  mockPermission('Notifications.View', 'Notificações', 'Visualizar fila', 'Consulta de notificações.', true, false, 800),
+  mockPermission('Notifications.Detail.View', 'Notificações', 'Visualizar corpo', 'Detalhe completo da mensagem.', false, false, 810),
+  mockPermission('Notifications.Queue', 'Notificações', 'Enfileirar lembretes', 'Criação de lembretes de carrinho abandonado.', false, false, 820),
+  mockPermission('Notifications.Dispatch', 'Notificações', 'Despachar mensagens', 'Envio manual da fila pendente.', false, false, 830),
+  mockPermission('Alerts.View', 'Alertas', 'Visualizar alertas', 'Consulta de alertas administrativos.', true, false, 900),
+  mockPermission('Alerts.Resolve', 'Alertas', 'Resolver/ignorar alertas', 'Fechamento com justificativa.', true, false, 910),
+  mockPermission('Automations.View', 'Automações', 'Visualizar jobs', 'Consulta de execuções administrativas.', false, false, 930),
+  mockPermission('Automations.Run', 'Automações', 'Executar jobs', 'Execução manual de automações.', false, false, 940),
+  mockPermission('Admin.Users.Manage', 'Administração', 'Gerenciar usuários', 'Criação e edição de funcionários.', false, true, 1000),
+  mockPermission('Admin.Permissions.Manage', 'Administração', 'Gerenciar permissões', 'Configuração da matriz de acesso.', false, true, 1010),
+  mockPermission('Admin.Audit.View', 'Administração', 'Visualizar auditoria', 'Consulta completa da trilha de auditoria.', false, true, 1020),
+  mockPermission('Admin.Readiness.View', 'Administração', 'Prontidão de produção', 'Configurações e integrações sensíveis.', false, true, 1030),
+];
+
+const mockEmployeePermissionOverrides = new Map<string, Set<string>>();
+
+function isMockEmployee(user: AdminUser): boolean {
+  return user.role !== 'Admin' && user.role !== 'Customer' && user.role !== 'owner';
+}
+
+function mockAllowedPermissionKeys(userId: string): Set<string> {
+  const existing = mockEmployeePermissionOverrides.get(userId);
+  if (existing) return new Set(existing);
+
+  const defaults = mockPermissionCatalog
+    .filter((permission) => permission.defaultForEmployee && !permission.isAdminOnly)
+    .map((permission) => permission.key);
+
+  return new Set(defaults);
+}
+
+function mockEmployeePermissionMatrix(userId: string): AdminEmployeePermissionMatrix {
+  const user = adminUsers.find((item) => item.id === userId) ?? adminUsers.find(isMockEmployee) ?? adminUsers[0];
+  const allowedKeys = mockAllowedPermissionKeys(user.id);
+  const explicitKeys = mockEmployeePermissionOverrides.get(user.id);
+
+  return {
+    userId: user.id,
+    name: user.name,
+    email: user.email,
+    isActive: user.active,
+    permissions: mockPermissionCatalog.map((permission) => ({
+      key: permission.key,
+      isAllowed: permission.isAdminOnly ? false : allowedKeys.has(permission.key),
+      isExplicit: explicitKeys?.has(permission.key) ?? false,
+      isAdminOnly: permission.isAdminOnly,
+    })),
+  };
+}
+
+function mockEmployeePermissionMatrices(): AdminEmployeePermissionMatrix[] {
+  return adminUsers.filter(isMockEmployee).map((user) => mockEmployeePermissionMatrix(user.id));
+}
+
+function mockUpdateEmployeePermissions(input: AdminEmployeePermissionUpdateInput, userId: string): AdminEmployeePermissionMatrix {
+  const reason = input.reason.trim();
+  if (reason.length < 10) {
+    throw new Error('Informe uma justificativa com pelo menos 10 caracteres.');
+  }
+
+  const allowedKeys = input.allowedPermissionKeys.filter((key) =>
+    mockPermissionCatalog.some((permission) => permission.key === key && !permission.isAdminOnly),
+  );
+
+  mockEmployeePermissionOverrides.set(userId, new Set(allowedKeys));
+  return mockEmployeePermissionMatrix(userId);
+}
+
+let mockNotificationStore: AdminNotificationDetails[] | null = null;
+
+function mockNotifications(): AdminNotificationDetails[] {
+  if (mockNotificationStore) return mockNotificationStore;
+
+  const now = Date.now();
+  mockNotificationStore = [
+    {
+      id: '1',
+      userId: '1',
+      orderId: orders[0]?.id,
+      type: 'PaymentApproved',
+      channel: 'Email',
+      status: 'Sent',
+      recipientMasked: 'cl***@email.com',
+      subject: 'Pagamento aprovado',
+      dedupeKey: `payment-approved-${orders[0]?.id ?? '1'}`,
+      scheduledAt: new Date(now - 5 * 3600000).toISOString(),
+      sentAt: new Date(now - 4 * 3600000).toISOString(),
+      attemptCount: 1,
+      createdAt: new Date(now - 5 * 3600000).toISOString(),
+      body: 'Seu pagamento foi aprovado e o pedido entrou em separacao.',
+      payloadJson: JSON.stringify({ orderId: orders[0]?.id ?? '1' }),
+    },
+    {
+      id: '2',
+      userId: '2',
+      cartId: 'mock-cart-1',
+      type: 'AbandonedCartReminder',
+      channel: 'Email',
+      status: 'Pending',
+      recipientMasked: 'ma***@email.com',
+      subject: 'Seu carrinho ainda esta reservado',
+      dedupeKey: 'abandoned-cart-mock-cart-1',
+      scheduledAt: new Date(now + 30 * 60000).toISOString(),
+      attemptCount: 0,
+      createdAt: new Date(now - 20 * 60000).toISOString(),
+      body: 'Lembrete amigavel para recuperar carrinho abandonado com consentimento.',
+      payloadJson: JSON.stringify({ cartId: 'mock-cart-1' }),
+    },
+    {
+      id: '3',
+      type: 'JobFailure',
+      channel: 'Email',
+      status: 'Failed',
+      recipientMasked: 'ad***@bibibolsas.com',
+      subject: 'Falha em job administrativo',
+      dedupeKey: 'job-failure-cleanup',
+      scheduledAt: new Date(now - 2 * 3600000).toISOString(),
+      failedAt: new Date(now - 115 * 60000).toISOString(),
+      attemptCount: 2,
+      lastError: 'Falha simulada ao comunicar workflow externo.',
+      createdAt: new Date(now - 2 * 3600000).toISOString(),
+      body: 'O job encontrou uma falha e precisa de verificacao operacional.',
+      payloadJson: JSON.stringify({ jobType: 'CleanupReportExports' }),
+    },
+  ];
+
+  return mockNotificationStore;
+}
+
+function filterMockNotifications(filters: AdminNotificationFilters = {}): AdminNotificationDetails[] {
+  return mockNotifications().filter((message) => {
+    if (filters.status && message.status !== filters.status) return false;
+    if (filters.type && message.type !== filters.type) return false;
+    if (filters.userId && message.userId !== filters.userId) return false;
+    return true;
+  });
+}
+
+function mockQueueAbandonedCartReminders(olderThanHours: number): number {
+  const existing = mockNotifications();
+  const report = mockAbandonedCartReport(olderThanHours);
+  let queued = 0;
+
+  report.items.forEach((cart) => {
+    const dedupeKey = `abandoned-cart-${cart.cartId}`;
+    if (existing.some((message) => message.dedupeKey === dedupeKey)) return;
+
+    const now = new Date().toISOString();
+    existing.unshift({
+      id: String(existing.length + 1),
+      userId: cart.userId,
+      cartId: cart.cartId,
+      type: 'AbandonedCartReminder',
+      channel: 'Email',
+      status: 'Pending',
+      recipientMasked: cart.customerEmailMasked ?? 'visitante',
+      subject: 'Seu carrinho ainda esta por aqui',
+      dedupeKey,
+      scheduledAt: now,
+      attemptCount: 0,
+      createdAt: now,
+      body: 'Lembrete de carrinho abandonado enfileirado pelo painel administrativo.',
+      payloadJson: JSON.stringify({ cartId: cart.cartId, olderThanHours }),
+    });
+    queued += 1;
+  });
+
+  return queued;
+}
+
+function mockDispatchNotifications(batchSize: number): number {
+  const pending = mockNotifications().filter((message) => message.status === 'Pending').slice(0, batchSize);
+  const sentAt = new Date().toISOString();
+
+  pending.forEach((message) => {
+    message.status = 'Sent';
+    message.sentAt = sentAt;
+    message.attemptCount += 1;
+    message.updatedAt = sentAt;
+  });
+
+  return pending.length;
+}
+
+let mockAutomationJobRuns: AdminAutomationJobRun[] = [
+  {
+    id: '1',
+    jobType: 'RunAllMaintenance',
+    status: 'Completed',
+    trigger: 'Scheduled',
+    itemsProcessed: 18,
+    itemsSucceeded: 18,
+    itemsFailed: 0,
+    startedAt: new Date(Date.now() - 6 * 3600000).toISOString(),
+    finishedAt: new Date(Date.now() - 6 * 3600000 + 45000).toISOString(),
+  },
+  {
+    id: '2',
+    jobType: 'DispatchNotifications',
+    status: 'Completed',
+    trigger: 'Manual',
+    triggeredByUserId: 'mock-admin',
+    itemsProcessed: 7,
+    itemsSucceeded: 6,
+    itemsFailed: 1,
+    errorMessage: 'Uma notificacao falhou e ficou disponivel para retry.',
+    startedAt: new Date(Date.now() - 2 * 3600000).toISOString(),
+    finishedAt: new Date(Date.now() - 2 * 3600000 + 18000).toISOString(),
+  },
+];
+
+function filterMockJobRuns(filters: AdminAutomationJobFilters = {}): AdminAutomationJobRun[] {
+  return mockAutomationJobRuns.filter((run) => {
+    if (filters.jobType && run.jobType !== filters.jobType) return false;
+    if (filters.status && run.status !== filters.status) return false;
+    return true;
+  });
+}
+
+function filterMockAudit(filters: AdminAuditFilters = {}): AuditEntry[] {
+  const from = filters.from ? new Date(filters.from).getTime() : undefined;
+  const to = filters.to ? new Date(filters.to).getTime() + 86400000 - 1 : undefined;
+
+  return auditLog.map((entry) => ({
+    ...entry,
+    actorRole: entry.actorRole ?? (entry.actor.includes('Sistema') ? 'System' : 'Admin'),
+    entityName: entry.entityName ?? entry.target.split(' #')[0],
+    entityId: entry.entityId ?? entry.target.match(/#(.+)$/)?.[1],
+  })).filter((entry) => {
+    const createdAt = new Date(entry.at).getTime();
+    if (filters.action && !entry.action.toLowerCase().includes(filters.action.toLowerCase())) return false;
+    if (filters.entityName && !(entry.entityName ?? entry.target).toLowerCase().includes(filters.entityName.toLowerCase())) return false;
+    if (filters.actorUserId && entry.actorUserId !== filters.actorUserId) return false;
+    if (from && createdAt < from) return false;
+    if (to && createdAt > to) return false;
+    return true;
+  });
+}
+
+function mockAuditDetail(id: string): AuditEntry {
+  const entry = filterMockAudit().find((item) => item.id === id);
+  if (!entry) throw new Error('Evento de auditoria nao encontrado.');
+
+  return {
+    ...entry,
+    oldValueJson: entry.oldValueJson ?? JSON.stringify({ status: 'Antes', mock: true }, null, 2),
+    newValueJson: entry.newValueJson ?? JSON.stringify({ status: 'Depois', action: entry.action, mock: true }, null, 2),
+    userAgent: entry.userAgent ?? 'Mock Admin Browser',
+    correlationId: entry.correlationId ?? `mock-correlation-${entry.id}`,
+  };
+}
+
+function mockRunAutomationJob(jobType: AdminAutomationJobType): AdminAutomationJobRun {
+  const now = new Date();
+  const processed = jobType === 'DispatchNotifications' ? mockDispatchNotifications(50) : Math.max(1, mockNotifications().length);
+  const run: AdminAutomationJobRun = {
+    id: String(mockAutomationJobRuns.length + 1),
+    jobType,
+    status: 'Completed',
+    trigger: 'Manual',
+    triggeredByUserId: 'mock-admin',
+    itemsProcessed: processed,
+    itemsSucceeded: processed,
+    itemsFailed: 0,
+    metadataJson: JSON.stringify({ mock: true }),
+    startedAt: now.toISOString(),
+    finishedAt: new Date(now.getTime() + 1200).toISOString(),
+  };
+
+  mockAutomationJobRuns = [run, ...mockAutomationJobRuns];
+  return run;
+}
+
 function toShipmentBody(input: AdminShipmentInput) {
   return {
     carrier: input.carrier.trim(),
@@ -1807,6 +3652,187 @@ export const adminService = {
   async getDashboard(): Promise<DashboardData> {
     if (USE_MOCK) return delay(dashboard);
     return mapAdminDashboard(await http<BackendAdminDashboardDto>('/admin/dashboard'));
+  },
+
+  async getSalesReport(filters: AdminSalesReportFilters = {}): Promise<AdminSalesReport> {
+    if (USE_MOCK) return delay(mockSalesReport(filters));
+
+    return mapSalesReport(
+      await http<BackendSalesReportDto>('/admin/relatorios/vendas', {
+        query: {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+          orderStatus: filters.orderStatus,
+          paymentMethod: filters.paymentMethod,
+          productId: filters.productId ? Number(filters.productId) : undefined,
+          categoryId: filters.categoryId ? Number(filters.categoryId) : undefined,
+          customerId: filters.customerId ? Number(filters.customerId) : undefined,
+          couponCode: filters.couponCode?.trim().toUpperCase(),
+          shippingProvider: filters.shippingProvider?.trim(),
+          minValue: filters.minValue,
+          maxValue: filters.maxValue,
+        },
+      }),
+    );
+  },
+
+  async getProductReport(includeMargin = false): Promise<AdminProductReport> {
+    if (USE_MOCK) return delay(mockProductReport(includeMargin));
+
+    return mapProductReport(
+      await http<BackendProductReportDto>('/admin/relatorios/produtos', {
+        query: { includeMargin },
+      }),
+    );
+  },
+
+  async getStockReport(): Promise<AdminStockReport> {
+    if (USE_MOCK) return delay(mockStockReport());
+
+    return mapStockReport(await http<BackendStockReportDto>('/admin/relatorios/estoque'));
+  },
+
+  async getCustomerReport(filters: AdminReportDateRange = {}): Promise<AdminCustomerReport> {
+    if (USE_MOCK) return delay(mockCustomerReport());
+
+    return mapCustomerReport(
+      await http<BackendCustomerReportDto>('/admin/relatorios/clientes', {
+        query: {
+          startDate: filters.startDate,
+          endDate: filters.endDate,
+        },
+      }),
+    );
+  },
+
+  async getCouponSummaryReport(): Promise<AdminCouponSummaryReport> {
+    if (USE_MOCK) return delay(mockCouponSummaryReport());
+
+    return mapCouponSummaryReport(await http<BackendCouponSummaryReportDto>('/admin/relatorios/cupons'));
+  },
+
+  async getAbandonedCartReport(olderThanHours = 24): Promise<AdminAbandonedCartReport> {
+    if (USE_MOCK) return delay(mockAbandonedCartReport(olderThanHours));
+
+    return mapAbandonedCartReport(
+      await http<BackendAbandonedCartReportDto>('/admin/relatorios/carrinhos-abandonados', {
+        query: { olderThanHours },
+      }),
+    );
+  },
+
+  async createReportExport(input: AdminReportExportRequest): Promise<AdminReportExport> {
+    if (USE_MOCK) return delay(mockReportExport(input));
+
+    return mapReportExport(
+      await http<BackendReportExportDto>('/admin/relatorios/exportacoes', {
+        method: 'POST',
+        body: {
+          reportType: input.reportType,
+          format: input.format,
+          includeSensitiveData: input.includeSensitiveData,
+          startDate: input.startDate,
+          endDate: input.endDate,
+        },
+      }),
+    );
+  },
+
+  async getReportExport(id: string): Promise<AdminReportExport> {
+    if (USE_MOCK) {
+      const exportRecord = mockReportExports.get(id);
+      if (!exportRecord) throw new Error('Exportacao nao encontrada.');
+      return delay(exportRecord);
+    }
+
+    return mapReportExport(await http<BackendReportExportDto>(`/admin/relatorios/exportacoes/${id}`));
+  },
+
+  async downloadReportExport(id: string): Promise<string> {
+    if (USE_MOCK) {
+      const exportRecord = mockReportExports.get(id);
+      if (!exportRecord) throw new Error('Exportacao nao encontrada.');
+      return delay(`relatorio;formato;status\n${exportRecord.reportType};${exportRecord.format};${exportRecord.status}\n`);
+    }
+
+    return http<string>(`/admin/relatorios/exportacoes/${id}/download`, {
+      headers: { Accept: 'text/csv' },
+      unwrapEnvelope: false,
+    });
+  },
+
+  async listNotifications(filters: AdminNotificationFilters = {}): Promise<AdminNotificationMessage[]> {
+    if (USE_MOCK) return delay(filterMockNotifications(filters).map(({ body: _body, payloadJson: _payloadJson, ...message }) => message));
+
+    const result = await http<BackendPaged<BackendNotificationMessageDto>>('/admin/notificacoes', {
+      query: {
+        status: filters.status,
+        type: filters.type,
+        userId: filters.userId ? Number(filters.userId) : undefined,
+        page: filters.page ?? 1,
+        pageSize: filters.pageSize ?? 20,
+      },
+    });
+
+    return result.items.map(mapNotificationMessage);
+  },
+
+  async getNotification(id: string): Promise<AdminNotificationDetails> {
+    if (USE_MOCK) {
+      const notification = mockNotifications().find((message) => message.id === id);
+      if (!notification) throw new Error('Notificacao nao encontrada.');
+      return delay(notification);
+    }
+
+    return mapNotificationDetails(await http<BackendNotificationMessageDetailsDto>(`/admin/notificacoes/${id}`));
+  },
+
+  async queueAbandonedCartReminders(olderThanHours: number): Promise<number> {
+    if (USE_MOCK) return delay(mockQueueAbandonedCartReminders(olderThanHours));
+
+    const result = await http<{ queued: number }>('/admin/notificacoes/carrinhos-abandonados/enfileirar', {
+      method: 'POST',
+      body: { olderThanHours },
+    });
+
+    return result.queued;
+  },
+
+  async dispatchPendingNotifications(batchSize: number): Promise<number> {
+    if (USE_MOCK) return delay(mockDispatchNotifications(batchSize));
+
+    const result = await http<{ sent: number }>('/admin/notificacoes/despachar', {
+      method: 'POST',
+      body: { batchSize },
+    });
+
+    return result.sent;
+  },
+
+  async listAutomationJobRuns(filters: AdminAutomationJobFilters = {}): Promise<AdminAutomationJobRun[]> {
+    if (USE_MOCK) return delay(filterMockJobRuns(filters));
+
+    const result = await http<BackendPaged<BackendAutomationJobRunDto>>('/admin/jobs/execucoes', {
+      query: {
+        jobType: filters.jobType,
+        status: filters.status,
+        page: filters.page ?? 1,
+        pageSize: filters.pageSize ?? 20,
+      },
+    });
+
+    return result.items.map(mapAutomationJobRun);
+  },
+
+  async runAutomationJob(jobType: AdminAutomationJobType): Promise<AdminAutomationJobRun> {
+    if (USE_MOCK) return delay(mockRunAutomationJob(jobType));
+
+    return mapAutomationJobRun(
+      await http<BackendAutomationJobRunDto>('/admin/jobs/executar', {
+        method: 'POST',
+        body: { jobType },
+      }),
+    );
   },
 
   async listAlerts(filters: {
@@ -1889,6 +3915,85 @@ export const adminService = {
 
     const result = await http<BackendAdminCategoryDto[]>('/admin/categorias');
     return result.map(mapAdminCatalogCategory);
+  },
+
+  async createAdminCategory(input: AdminCategoryInput): Promise<AdminCatalogCategory> {
+    if (USE_MOCK) {
+      const store = mockAdminCategories();
+      const category: AdminCatalogCategory = {
+        id: String(Math.max(0, ...store.map((item) => Number(item.id) || 0)) + 1),
+        name: input.name.trim(),
+        slug: slugify(input.slug || input.name),
+        description: optionalText(input.description),
+        parentCategoryId: input.parentCategoryId || undefined,
+        displayOrder: input.displayOrder,
+        isActive: input.isActive,
+        seoTitle: optionalText(input.seoTitle),
+        seoDescription: optionalText(input.seoDescription),
+        createdAt: new Date().toISOString(),
+      };
+      store.push(category);
+      return delay(category);
+    }
+
+    return mapAdminCatalogCategory(
+      await http<BackendAdminCategoryDto>('/admin/categorias', {
+        method: 'POST',
+        body: toCategoryBody(input),
+      }),
+    );
+  },
+
+  async updateAdminCategory(id: string, input: AdminCategoryInput): Promise<AdminCatalogCategory> {
+    if (USE_MOCK) {
+      const store = mockAdminCategories();
+      const index = store.findIndex((category) => category.id === id);
+      if (index < 0) throw new Error('Categoria nao encontrada.');
+
+      const updated: AdminCatalogCategory = {
+        ...store[index],
+        name: input.name.trim(),
+        slug: slugify(input.slug || input.name),
+        description: optionalText(input.description),
+        parentCategoryId: input.parentCategoryId || undefined,
+        displayOrder: input.displayOrder,
+        isActive: input.isActive,
+        seoTitle: optionalText(input.seoTitle),
+        seoDescription: optionalText(input.seoDescription),
+        updatedAt: new Date().toISOString(),
+      };
+      store[index] = updated;
+      return delay(updated);
+    }
+
+    return mapAdminCatalogCategory(
+      await http<BackendAdminCategoryDto>(`/admin/categorias/${id}`, {
+        method: 'PUT',
+        body: toCategoryBody(input),
+      }),
+    );
+  },
+
+  async archiveAdminCategory(id: string): Promise<AdminCatalogCategory> {
+    if (USE_MOCK) {
+      const store = mockAdminCategories();
+      const index = store.findIndex((category) => category.id === id);
+      if (index < 0) throw new Error('Categoria nao encontrada.');
+
+      const archived = {
+        ...store[index],
+        isActive: false,
+        updatedAt: new Date().toISOString(),
+      };
+      store[index] = archived;
+      return delay(archived);
+    }
+
+    return mapAdminCatalogCategory(
+      await http<BackendAdminCategoryDto>(`/admin/categorias/${id}`, {
+        method: 'DELETE',
+      }),
+    );
   },
 
   async listAdminProducts(filters: {
@@ -1978,6 +4083,12 @@ export const adminService = {
         body: { isFeatured },
       }),
     );
+  },
+
+  async listProductPriceHistory(productId: string): Promise<AdminProductPriceHistory[]> {
+    if (USE_MOCK) return delay(mockProductPriceHistory(productId));
+    return (await http<BackendProductPriceHistoryDto[]>(`/admin/produtos/${productId}/historico-preco`))
+      .map(mapProductPriceHistory);
   },
 
   async deactivateAdminProductVariant(productId: string, variantId: string): Promise<AdminProductVariant> {
@@ -2245,10 +4356,33 @@ export const adminService = {
     );
   },
 
-  async listOrders(): Promise<Order[]> {
-    if (USE_MOCK) return delay(orders);
+  async listOrders(filters: AdminOrderFilters = {}): Promise<Order[]> {
+    if (USE_MOCK) {
+      const search = filters.search?.trim().toLowerCase();
+      const from = filters.from ? new Date(filters.from).getTime() : undefined;
+      const to = filters.to ? new Date(filters.to).getTime() + 86400000 - 1 : undefined;
+
+      return delay(orders.filter((order) => {
+        const createdAt = new Date(order.createdAt).getTime();
+        if (filters.status && order.status !== filters.status) return false;
+        if (from && createdAt < from) return false;
+        if (to && createdAt > to) return false;
+        if (!search) return true;
+        return order.number.toLowerCase().includes(search) ||
+          order.shippingAddress.recipient.toLowerCase().includes(search) ||
+          order.items.some((item) => item.name.toLowerCase().includes(search) || item.sku.toLowerCase().includes(search));
+      }));
+    }
+
     const result = await http<BackendPaged<BackendOrderListItemDto>>('/admin/pedidos', {
-      query: { page: 1, pageSize: 100 },
+      query: {
+        status: filters.status ? toBackendOrderStatus(filters.status as OrderStatus) : undefined,
+        search: filters.search,
+        from: filters.from,
+        to: filters.to,
+        page: filters.page ?? 1,
+        pageSize: filters.pageSize ?? 100,
+      },
     });
     return result.items.map(mapListOrder);
   },
@@ -2256,6 +4390,11 @@ export const adminService = {
   async getOrder(id: string): Promise<Order> {
     if (USE_MOCK) return delay(mockOrderById(id));
     return mapOrderDetails(await http<BackendOrderDetailsDto>(`/admin/pedidos/${id}`));
+  },
+
+  async listOrderHistory(id: string): Promise<OrderHistoryEvent[]> {
+    if (USE_MOCK) return delay(mockOrderById(id).history ?? []);
+    return (await http<BackendOrderHistoryDto[]>(`/admin/pedidos/${id}/historico`)).map(mapOrderHistory);
   },
 
   async listOrderPayments(id: string): Promise<PaymentAttempt[]> {
@@ -2417,7 +4556,7 @@ export const adminService = {
     page?: number;
     pageSize?: number;
   } = {}): Promise<Coupon[]> {
-    if (USE_MOCK) return delay(coupons);
+    if (USE_MOCK) return delay(filterMockCoupons(filters));
     const result = await http<BackendPaged<BackendCouponDto>>('/admin/cupons', {
       query: {
         search: filters.search,
@@ -2429,23 +4568,16 @@ export const adminService = {
     return result.items.map(mapCoupon);
   },
 
+  async getCoupon(id: string): Promise<Coupon> {
+    if (USE_MOCK) return delay(mockCouponById(id));
+    return mapCoupon(await http<BackendCouponDto>(`/admin/cupons/${id}`));
+  },
+
   async createCoupon(input: AdminCouponInput): Promise<Coupon> {
     if (USE_MOCK) {
-      return delay({
-        id: `cpn-${Date.now()}`,
-        code: input.code,
-        name: input.name,
-        description: input.description || input.name,
-        type: input.type,
-        value: input.type === 'Percentage' ? input.discountValueCents : input.discountValueCents,
-        active: false,
-        status: 'Inactive',
-        startsAt: input.startsAt,
-        usageCount: 0,
-        usageLimit: input.totalUsageLimit,
-        usageLimitPerCustomer: input.usageLimitPerCustomer,
-        expiresAt: input.endsAt,
-      });
+      const coupon = mockCouponFromInput(input);
+      coupons.unshift(coupon);
+      return delay(coupon);
     }
 
     return mapCoupon(
@@ -2456,10 +4588,37 @@ export const adminService = {
     );
   },
 
+  async updateCoupon(id: string, input: AdminCouponInput): Promise<Coupon> {
+    if (USE_MOCK) {
+      const index = coupons.findIndex((item) => item.id === id);
+      if (index < 0) throw new Error('Cupom nao encontrado.');
+      const coupon = {
+        ...mockCouponFromInput(input, id),
+        active: coupons[index].active,
+        status: coupons[index].status ?? (coupons[index].active ? 'Active' : 'Inactive'),
+        usageCount: coupons[index].usageCount,
+        createdAt: coupons[index].createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      coupons[index] = coupon;
+      return delay(coupon);
+    }
+
+    return mapCoupon(
+      await http<BackendCouponDto>(`/admin/cupons/${id}`, {
+        method: 'PUT',
+        body: toCouponBody(input),
+      }),
+    );
+  },
+
   async updateCouponStatus(id: string, status: 'Active' | 'Inactive', reason: string): Promise<Coupon> {
     if (USE_MOCK) {
-      const coupon = coupons.find((item) => item.id === id) ?? coupons[0];
-      return delay({ ...coupon, active: status === 'Active', status });
+      const index = coupons.findIndex((item) => item.id === id);
+      const coupon = coupons[index] ?? coupons[0];
+      const updated = { ...normalizedCoupon(coupon), active: status === 'Active', status, updatedAt: new Date().toISOString() };
+      if (index >= 0) coupons[index] = updated;
+      return delay(updated);
     }
 
     return mapCoupon(
@@ -2472,8 +4631,11 @@ export const adminService = {
 
   async archiveCoupon(id: string, reason: string): Promise<Coupon> {
     if (USE_MOCK) {
-      const coupon = coupons.find((item) => item.id === id) ?? coupons[0];
-      return delay({ ...coupon, active: false, status: 'Archived', archivedAt: new Date().toISOString(), archiveReason: reason.trim() });
+      const index = coupons.findIndex((item) => item.id === id);
+      const coupon = coupons[index] ?? coupons[0];
+      const updated = { ...normalizedCoupon(coupon), active: false, status: 'Archived', archivedAt: new Date().toISOString(), archiveReason: reason.trim() };
+      if (index >= 0) coupons[index] = updated;
+      return delay(updated);
     }
 
     return mapCoupon(
@@ -2484,13 +4646,32 @@ export const adminService = {
     );
   },
 
+  async listCouponUsages(id: string, filters: AdminCouponUsageFilters = {}): Promise<AdminCouponUsage[]> {
+    if (USE_MOCK) return delay(mockCouponUsages(id, filters));
+
+    const result = await http<BackendPaged<BackendCouponUsageDto>>(`/admin/cupons/${id}/usos`, {
+      query: {
+        status: filters.status,
+        page: filters.page ?? 1,
+        pageSize: filters.pageSize ?? 10,
+      },
+    });
+
+    return result.items.map(mapCouponUsage);
+  },
+
+  async getCouponReport(id: string): Promise<AdminCouponReport> {
+    if (USE_MOCK) return delay(mockCouponReport(id));
+    return mapCouponReport(await http<BackendCouponReportDto>(`/admin/cupons/${id}/relatorio`));
+  },
+
   async listPromotions(filters: {
     search?: string;
     status?: string;
     page?: number;
     pageSize?: number;
   } = {}): Promise<Promotion[]> {
-    if (USE_MOCK) return delay(promotions);
+    if (USE_MOCK) return delay(filterMockPromotions(filters));
     const result = await http<BackendPaged<BackendPromotionDto>>('/admin/promocoes', {
       query: {
         search: filters.search,
@@ -2502,21 +4683,16 @@ export const adminService = {
     return result.items.map(mapPromotion);
   },
 
+  async getPromotion(id: string): Promise<Promotion> {
+    if (USE_MOCK) return delay(mockPromotionById(id));
+    return mapPromotion(await http<BackendPromotionDto>(`/admin/promocoes/${id}`));
+  },
+
   async createPromotion(input: AdminPromotionInput): Promise<Promotion> {
     if (USE_MOCK) {
-      return delay({
-        id: `promo-${Date.now()}`,
-        name: input.name,
-        description: input.description,
-        discountPct: input.type === 'Percentage' ? input.discountValueCents : 0,
-        type: input.type,
-        discountValue: input.discountValueCents,
-        active: false,
-        status: 'Inactive',
-        startsAt: input.startsAt,
-        endsAt: input.endsAt,
-        productCount: 1,
-      });
+      const promotion = mockPromotionFromInput(input);
+      promotions.unshift(promotion);
+      return delay(promotion);
     }
 
     return mapPromotion(
@@ -2527,10 +4703,36 @@ export const adminService = {
     );
   },
 
+  async updatePromotion(id: string, input: AdminPromotionInput): Promise<Promotion> {
+    if (USE_MOCK) {
+      const index = promotions.findIndex((item) => item.id === id);
+      if (index < 0) throw new Error('Promocao nao encontrada.');
+      const promotion = {
+        ...mockPromotionFromInput(input, id),
+        active: promotions[index].active,
+        status: promotions[index].status ?? (promotions[index].active ? 'Active' : 'Inactive'),
+        createdAt: promotions[index].createdAt,
+        updatedAt: new Date().toISOString(),
+      };
+      promotions[index] = promotion;
+      return delay(promotion);
+    }
+
+    return mapPromotion(
+      await http<BackendPromotionDto>(`/admin/promocoes/${id}`, {
+        method: 'PUT',
+        body: toPromotionBody(input),
+      }),
+    );
+  },
+
   async updatePromotionStatus(id: string, status: 'Active' | 'Inactive', reason: string): Promise<Promotion> {
     if (USE_MOCK) {
-      const promotion = promotions.find((item) => item.id === id) ?? promotions[0];
-      return delay({ ...promotion, active: status === 'Active', status });
+      const index = promotions.findIndex((item) => item.id === id);
+      const promotion = promotions[index] ?? promotions[0];
+      const updated = { ...normalizedPromotion(promotion), active: status === 'Active', status, updatedAt: new Date().toISOString() };
+      if (index >= 0) promotions[index] = updated;
+      return delay(updated);
     }
 
     return mapPromotion(
@@ -2543,8 +4745,11 @@ export const adminService = {
 
   async archivePromotion(id: string, reason: string): Promise<Promotion> {
     if (USE_MOCK) {
-      const promotion = promotions.find((item) => item.id === id) ?? promotions[0];
-      return delay({ ...promotion, active: false, status: 'Archived', archivedAt: new Date().toISOString(), archiveReason: reason.trim() });
+      const index = promotions.findIndex((item) => item.id === id);
+      const promotion = promotions[index] ?? promotions[0];
+      const updated = { ...normalizedPromotion(promotion), active: false, status: 'Archived', archivedAt: new Date().toISOString(), archiveReason: reason.trim() };
+      if (index >= 0) promotions[index] = updated;
+      return delay(updated);
     }
 
     return mapPromotion(
@@ -2553,6 +4758,11 @@ export const adminService = {
         body: { reason: reason.trim() },
       }),
     );
+  },
+
+  async getPromotionReport(id: string): Promise<AdminPromotionReport> {
+    if (USE_MOCK) return delay(mockPromotionReport(id));
+    return mapPromotionReport(await http<BackendPromotionReportDto>(`/admin/promocoes/${id}/relatorio`));
   },
 
   async listCustomers(filters: {
@@ -2587,6 +4797,11 @@ export const adminService = {
     return mapAdminCustomerDetail(await http<BackendAdminCustomerDetailDto>(`/admin/customers/${id}`));
   },
 
+  async listCustomerAddresses(id: string): Promise<Address[]> {
+    if (USE_MOCK) return delay(mockCustomerAddresses(id));
+    return (await http<BackendCustomerAddressDto[]>(`/admin/customers/${id}/enderecos`)).map(mapCustomerAddress);
+  },
+
   async updateCustomerStatus(id: string, isActive: boolean): Promise<void> {
     if (USE_MOCK) return delay(undefined);
     await http<BackendAdminUserDto>(`/admin/customers/${id}/status`, {
@@ -2618,10 +4833,25 @@ export const adminService = {
     );
   },
 
-  async listUsers(): Promise<AdminUser[]> {
-    if (USE_MOCK) return delay(adminUsers);
+  async listUsers(filters: AdminUserFilters = {}): Promise<AdminUser[]> {
+    if (USE_MOCK) {
+      const search = filters.search?.trim().toLowerCase();
+      return delay(adminUsers.filter((user) => {
+        if (filters.role && user.role !== filters.role) return false;
+        if (filters.isActive != null && user.active !== filters.isActive) return false;
+        if (!search) return true;
+        return user.name.toLowerCase().includes(search) || user.email.toLowerCase().includes(search);
+      }));
+    }
+
     const result = await http<BackendPaged<BackendAdminUserDto>>('/admin/users', {
-      query: { page: 1, pageSize: 100 },
+      query: {
+        search: filters.search,
+        role: filters.role,
+        isActive: filters.isActive,
+        page: filters.page ?? 1,
+        pageSize: filters.pageSize ?? 100,
+      },
     });
     return result.items.map(mapAdminUser);
   },
@@ -2696,12 +4926,65 @@ export const adminService = {
     );
   },
 
-  async listAudit(): Promise<AuditEntry[]> {
-    if (USE_MOCK) return delay(auditLog);
+  async listPermissionCatalog(): Promise<AdminPermissionDefinition[]> {
+    if (USE_MOCK) return delay(mockPermissionCatalog);
+
+    const result = await http<BackendAdminPermissionDefinitionDto[]>('/admin/permissoes/catalogo');
+    return result.map(mapAdminPermissionDefinition);
+  },
+
+  async listEmployeePermissionMatrices(): Promise<AdminEmployeePermissionMatrix[]> {
+    if (USE_MOCK) return delay(mockEmployeePermissionMatrices());
+
+    const result = await http<BackendEmployeePermissionMatrixDto[]>('/admin/permissoes/funcionarios');
+    return result.map(mapEmployeePermissionMatrix);
+  },
+
+  async getEmployeePermissionMatrix(userId: string): Promise<AdminEmployeePermissionMatrix> {
+    if (USE_MOCK) return delay(mockEmployeePermissionMatrix(userId));
+
+    return mapEmployeePermissionMatrix(
+      await http<BackendEmployeePermissionMatrixDto>(`/admin/permissoes/funcionarios/${userId}`),
+    );
+  },
+
+  async updateEmployeePermissions(
+    userId: string,
+    input: AdminEmployeePermissionUpdateInput,
+  ): Promise<AdminEmployeePermissionMatrix> {
+    if (USE_MOCK) return delay(mockUpdateEmployeePermissions(input, userId));
+
+    return mapEmployeePermissionMatrix(
+      await http<BackendEmployeePermissionMatrixDto>(`/admin/permissoes/funcionarios/${userId}`, {
+        method: 'PUT',
+        body: {
+          allowedPermissionKeys: input.allowedPermissionKeys,
+          reason: input.reason.trim(),
+        },
+      }),
+    );
+  },
+
+  async listAudit(filters: AdminAuditFilters = {}): Promise<AuditEntry[]> {
+    if (USE_MOCK) return delay(filterMockAudit(filters));
+
     const result = await http<BackendPaged<BackendAuditLogDto>>('/admin/auditoria', {
-      query: { page: 1, pageSize: 20 },
+      query: {
+        action: filters.action,
+        entityName: filters.entityName,
+        actorUserId: filters.actorUserId ? Number(filters.actorUserId) : undefined,
+        from: filters.from,
+        to: filters.to,
+        page: filters.page ?? 1,
+        pageSize: filters.pageSize ?? 20,
+      },
     });
     return result.items.map(mapAuditEntry);
+  },
+
+  async getAuditEntry(id: string): Promise<AuditEntry> {
+    if (USE_MOCK) return delay(mockAuditDetail(id));
+    return mapAuditEntryDetails(await http<BackendAuditLogDetailsDto>(`/admin/auditoria/${id}`));
   },
 
   async getProductionReadiness(): Promise<ProductionReadiness> {

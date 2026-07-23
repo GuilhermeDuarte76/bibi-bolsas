@@ -1,8 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Eye, MagnifyingGlass, PencilSimple, Plus, Star } from '@phosphor-icons/react';
+import { ClockCounterClockwise, Eye, MagnifyingGlass, PencilSimple, Plus, Star } from '@phosphor-icons/react';
 import { adminService, queryKeys } from '@/lib/api';
-import type { AdminInventorySummary, AdminProduct, AdminProductVariant } from '@/types';
+import type { AdminInventorySummary, AdminProduct, AdminProductPriceHistory, AdminProductVariant } from '@/types';
 import { PageHeader, AdminTable, Panel } from '@/components/admin/AdminUI';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { Input, Select } from '@/components/ui/Field';
@@ -17,6 +17,20 @@ const STATUS_OPTIONS = [
   { value: 'Draft', label: 'Rascunho' },
   { value: 'Published', label: 'Publicado' },
   { value: 'Archived', label: 'Arquivado' },
+];
+
+const STOCK_OPTIONS = [
+  { value: '', label: 'Todos estoques' },
+  { value: 'available', label: 'Com estoque' },
+  { value: 'low', label: 'Estoque baixo' },
+  { value: 'out', label: 'Sem estoque' },
+];
+
+const FEATURED_OPTIONS = [
+  { value: '', label: 'Todos' },
+  { value: 'featured', label: 'Destaques' },
+  { value: 'promotion', label: 'Promoção' },
+  { value: 'new', label: 'Novidades' },
 ];
 
 function statusPill(status: string) {
@@ -51,6 +65,9 @@ export function AdminProducts() {
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [category, setCategory] = useState('');
+  const [stock, setStock] = useState('');
+  const [highlight, setHighlight] = useState('');
   const [selectedProductId, setSelectedProductId] = useState<string | undefined>();
 
   const filters = { search: search.trim() || undefined, status: status || undefined, page: 1, pageSize: 30 };
@@ -84,14 +101,37 @@ export function AdminProducts() {
   });
 
   const products = productsQuery.data ?? [];
-  const selectedProduct = useMemo(
-    () => products.find((product) => product.id === selectedProductId) ?? products[0],
-    [products, selectedProductId],
-  );
+  const categoryOptions = useMemo(() => {
+    const byId = new Map<string, { id: string; name: string }>();
+    products.flatMap((product) => product.categories).forEach((item) => byId.set(item.id, { id: item.id, name: item.name }));
+    return [...byId.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }, [products]);
+  const filteredProducts = useMemo(() => products.filter((product) => {
+    const available = product.variants.reduce((sum, variant) => sum + variant.availableQuantity, 0);
+    const hasLowStock = product.variants.some((variant) => variant.isLowStock);
 
-  const published = products.filter((product) => product.status === 'Published').length;
-  const drafts = products.filter((product) => product.status === 'Draft').length;
-  const lowStock = products.filter((product) => product.variants.some((variant) => variant.isLowStock)).length;
+    if (category && !product.categories.some((item) => item.id === category)) return false;
+    if (stock === 'available' && available <= 0) return false;
+    if (stock === 'low' && !hasLowStock) return false;
+    if (stock === 'out' && available > 0) return false;
+    if (highlight === 'featured' && !product.isFeatured) return false;
+    if (highlight === 'promotion' && !product.isPromotion) return false;
+    if (highlight === 'new' && !product.isNewArrival) return false;
+    return true;
+  }), [category, highlight, products, stock]);
+  const selectedProduct = useMemo(
+    () => filteredProducts.find((product) => product.id === selectedProductId) ?? filteredProducts[0],
+    [filteredProducts, selectedProductId],
+  );
+  const priceHistoryQuery = useQuery({
+    queryKey: queryKeys.admin.productPriceHistory(selectedProduct?.id ?? ''),
+    queryFn: () => adminService.listProductPriceHistory(selectedProduct!.id),
+    enabled: !!selectedProduct,
+  });
+
+  const published = filteredProducts.filter((product) => product.status === 'Published').length;
+  const drafts = filteredProducts.filter((product) => product.status === 'Draft').length;
+  const lowStock = filteredProducts.filter((product) => product.variants.some((variant) => variant.isLowStock)).length;
 
   return (
     <div>
@@ -104,7 +144,7 @@ export function AdminProducts() {
       <div className="mb-6 grid gap-4 md:grid-cols-4">
         <Panel>
           <p className="text-sm text-graphite-soft">Neste filtro</p>
-          <p className="mt-2 text-2xl font-semibold text-graphite">{products.length}</p>
+          <p className="mt-2 text-2xl font-semibold text-graphite">{filteredProducts.length}</p>
         </Panel>
         <Panel>
           <p className="text-sm text-graphite-soft">Publicados</p>
@@ -122,7 +162,7 @@ export function AdminProducts() {
 
       <div className="grid gap-6 xl:grid-cols-[1.35fr_0.85fr]">
         <Panel title="Catálogo">
-          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_190px]">
+          <div className="mb-4 grid gap-3 md:grid-cols-[1fr_160px_180px_170px_160px]">
             <div className="relative">
               <MagnifyingGlass size={18} className="absolute left-3 top-1/2 -translate-y-1/2 text-store-gray" />
               <Input
@@ -136,6 +176,16 @@ export function AdminProducts() {
             <Select aria-label="Filtrar status" value={status} onChange={(event) => setStatus(event.target.value)}>
               {STATUS_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
             </Select>
+            <Select aria-label="Filtrar categoria" value={category} onChange={(event) => setCategory(event.target.value)}>
+              <option value="">Todas categorias</option>
+              {categoryOptions.map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}
+            </Select>
+            <Select aria-label="Filtrar estoque" value={stock} onChange={(event) => setStock(event.target.value)}>
+              {STOCK_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
+            </Select>
+            <Select aria-label="Filtrar destaque" value={highlight} onChange={(event) => setHighlight(event.target.value)}>
+              {FEATURED_OPTIONS.map((option) => <option key={option.value || 'all'} value={option.value}>{option.label}</option>)}
+            </Select>
           </div>
 
           {productsQuery.isLoading ? (
@@ -143,7 +193,7 @@ export function AdminProducts() {
           ) : (
             <AdminTable<AdminProduct>
               rowKey={(product) => product.id}
-              rows={products}
+              rows={filteredProducts}
               empty="Nenhum produto encontrado."
               columns={[
                 {
@@ -264,6 +314,31 @@ export function AdminProducts() {
             )}
           </Panel>
 
+          <Panel title="Histórico de preço">
+            {!selectedProduct ? (
+              <p className="text-sm text-graphite-soft">Selecione um produto para consultar alterações de preço.</p>
+            ) : priceHistoryQuery.isLoading ? (
+              <Skeleton className="h-44 w-full rounded-[var(--radius-lg)]" />
+            ) : priceHistoryQuery.data?.length ? (
+              <AdminTable<AdminProductPriceHistory>
+                rowKey={(entry) => entry.id}
+                rows={priceHistoryQuery.data.slice(0, 8)}
+                columns={[
+                  { key: 'sku', header: 'SKU', render: (entry) => <span className="font-mono text-xs">{entry.sku}</span> },
+                  { key: 'price', header: 'Preço', render: (entry) => <PriceChange oldValue={entry.oldPriceCents} newValue={entry.newPriceCents} /> },
+                  { key: 'promo', header: 'Promoção', render: (entry) => <PriceChange oldValue={entry.oldPromotionalPriceCents} newValue={entry.newPromotionalPriceCents} empty="-" /> },
+                  { key: 'user', header: 'Usuário', render: (entry) => entry.changedByUserId ? `#${entry.changedByUserId}` : 'Sistema' },
+                  { key: 'date', header: 'Quando', render: (entry) => formatDateShort(entry.changedAt) },
+                ]}
+              />
+            ) : (
+              <div className="flex items-start gap-3 text-sm leading-6 text-graphite-soft">
+                <ClockCounterClockwise size={21} className="mt-0.5 text-cinnamon" />
+                <p>Nenhuma alteração de preço registrada para este produto.</p>
+              </div>
+            )}
+          </Panel>
+
           <Panel title="SKUs com estoque baixo" action={<ButtonLink size="sm" variant="ghost" to="/admin/estoque">Ver estoque</ButtonLink>}>
             {inventoryQuery.isLoading ? (
               <Skeleton className="h-40 w-full rounded-[var(--radius-lg)]" />
@@ -285,6 +360,18 @@ export function AdminProducts() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PriceChange({ oldValue, newValue, empty = 'Sem valor' }: { oldValue?: number; newValue?: number; empty?: string }) {
+  if (oldValue == null && newValue == null) return <span className="text-graphite-soft">{empty}</span>;
+
+  return (
+    <span className="text-sm">
+      <span className="text-graphite-soft">{oldValue != null ? formatPrice(oldValue) : '-'}</span>
+      <span className="mx-1 text-store-gray">→</span>
+      <strong className="font-medium text-graphite">{newValue != null ? formatPrice(newValue) : '-'}</strong>
+    </span>
   );
 }
 
