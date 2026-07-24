@@ -373,6 +373,18 @@ function imageMetadataChanged(image: ImageForm, input: AdminProductImageInput) {
     input.sortOrder !== image.original.sortOrder;
 }
 
+function imageInputWithoutId(input: AdminProductImageInput): AdminProductImageInput {
+  const copy = { ...input };
+  delete copy.id;
+  return copy;
+}
+
+function isImageNotFoundError(error: unknown) {
+  if (!(error instanceof Error)) return false;
+  const message = error.message.toLowerCase();
+  return message.includes('imagem') && (message.includes('não encontrada') || message.includes('nao encontrada'));
+}
+
 function assertValidUrl(value: string) {
   try {
     const parsed = new URL(value);
@@ -666,28 +678,43 @@ export function AdminProductForm() {
         );
       }
 
+      const productForImageSync = await adminService.getAdminProduct(savedProduct.id);
+      const currentImageIds = new Set(productForImageSync.images.map((image) => image.id));
       const imageDrafts = prepareImageDrafts(images, variants, savedProduct);
-      const keptImageIds = new Set(imageDrafts.filter((draft) => draft.input.id).map((draft) => draft.input.id));
+      const keptImageIds = new Set(
+        imageDrafts
+          .filter((draft) => draft.input.id && currentImageIds.has(draft.input.id))
+          .map((draft) => draft.input.id),
+      );
 
-      if (!isNew && product) {
-        const removedImages = product.images.filter((image) => !keptImageIds.has(image.id));
-        await Promise.all(
-          removedImages.map((image) => adminService.deleteAdminProductImage(savedProduct.id, image.id)),
-        );
+      if (!isNew) {
+        const removedImages = productForImageSync.images.filter((image) => !keptImageIds.has(image.id));
+        for (const image of removedImages) {
+          try {
+            await adminService.deleteAdminProductImage(savedProduct.id, image.id);
+          } catch (error) {
+            if (!isImageNotFoundError(error)) throw error;
+          }
+        }
       }
 
       for (const draft of imageDrafts) {
         const image = draft.input;
-        if (image.id) {
+        if (image.id && currentImageIds.has(image.id)) {
           if (draft.source.existing && imageChanged(draft.source, image)) {
-            if (imageMetadataChanged(draft.source, image)) {
-              await adminService.updateAdminProductImage(savedProduct.id, image.id, image);
-            } else if (image.isMain && image.isMain !== draft.source.original.isMain) {
-              await adminService.setAdminProductMainImage(savedProduct.id, image.id);
+            try {
+              if (imageMetadataChanged(draft.source, image)) {
+                await adminService.updateAdminProductImage(savedProduct.id, image.id, image);
+              } else if (image.isMain && image.isMain !== draft.source.original.isMain) {
+                await adminService.setAdminProductMainImage(savedProduct.id, image.id);
+              }
+            } catch (error) {
+              if (!isImageNotFoundError(error)) throw error;
+              await adminService.addAdminProductImage(savedProduct.id, imageInputWithoutId(image));
             }
           }
         } else {
-          await adminService.addAdminProductImage(savedProduct.id, image);
+          await adminService.addAdminProductImage(savedProduct.id, imageInputWithoutId(image));
         }
       }
 
