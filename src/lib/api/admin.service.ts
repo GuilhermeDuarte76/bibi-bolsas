@@ -4071,6 +4071,20 @@ export const adminService = {
     );
   },
 
+  async archiveAdminProduct(id: string): Promise<AdminProduct> {
+    if (USE_MOCK) {
+      const product = mockAdminProducts().find((item) => item.id === id) ?? mockAdminProducts()[0];
+      const archivedAt = new Date().toISOString();
+      return delay({ ...product, status: 'Archived', isAvailable: false, archivedAt, updatedAt: archivedAt });
+    }
+
+    return mapAdminProduct(
+      await http<BackendAdminProductDto>(`/admin/produtos/${id}`, {
+        method: 'DELETE',
+      }),
+    );
+  },
+
   async updateAdminProductFeatured(id: string, isFeatured: boolean): Promise<AdminProduct> {
     if (USE_MOCK) {
       const product = mockAdminProducts().find((item) => item.id === id) ?? mockAdminProducts()[0];

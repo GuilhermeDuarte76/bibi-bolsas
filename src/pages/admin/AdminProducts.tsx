@@ -10,6 +10,7 @@ import {
   PencilSimple,
   Plus,
   Star,
+  TrashSimple,
   Warning,
   X,
 } from '@phosphor-icons/react';
@@ -27,6 +28,7 @@ import {
   StatusBadge,
   Toolbar,
   ToolbarSpacer,
+  ConfirmDialog,
   Modal,
   toast,
   type Column,
@@ -103,6 +105,7 @@ export function AdminProducts() {
   const [highlight, setHighlight] = useState('');
   const [sort, setSort] = useState<SortState | undefined>();
   const [detailId, setDetailId] = useState<string | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<AdminProduct | null>(null);
 
   const filters = { search: search.trim() || undefined, status: status || undefined, page: 1, pageSize: 30 };
   const productsQuery = useQuery({
@@ -146,6 +149,24 @@ export function AdminProducts() {
     onError: (error) =>
       toast.error({
         title: 'Não foi possível atualizar o destaque',
+        description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
+      }),
+  });
+
+  const productArchive = useMutation({
+    mutationFn: (id: string) => adminService.archiveAdminProduct(id),
+    onSuccess: (product) => {
+      toast.success({
+        title: 'Produto excluído da loja',
+        description: `“${product.name}” foi arquivado e não aparece mais para clientes.`,
+      });
+      setArchiveTarget(null);
+      setDetailId((current) => (current === product.id ? null : current));
+      queryClient.invalidateQueries({ queryKey: queryKeys.admin.products });
+    },
+    onError: (error) =>
+      toast.error({
+        title: 'Não foi possível excluir o produto',
         description: error instanceof Error ? error.message : 'Tente novamente em instantes.',
       }),
   });
@@ -294,7 +315,7 @@ export function AdminProducts() {
       key: 'actions',
       header: '',
       align: 'right',
-      width: '150px',
+      width: '250px',
       render: (product) => (
         <div className="flex items-center justify-end gap-1" onClick={(e) => e.stopPropagation()}>
           <button
@@ -318,6 +339,16 @@ export function AdminProducts() {
               }
             >
               {product.status === 'Published' ? 'Despublicar' : 'Publicar'}
+            </Button>
+          )}
+          {product.status !== 'Archived' && (
+            <Button
+              size="sm"
+              variant="danger"
+              loading={productArchive.isPending && productArchive.variables === product.id}
+              onClick={() => setArchiveTarget(product)}
+            >
+              <TrashSimple size={15} /> Excluir
             </Button>
           )}
           <ButtonLink size="sm" variant="outline" to={`/admin/produtos/${product.id}`} aria-label="Editar">
@@ -499,8 +530,27 @@ export function AdminProducts() {
         onToggleFeatured={() =>
           detailProduct && productFeatured.mutate({ id: detailProduct.id, featured: !detailProduct.isFeatured })
         }
+        onArchive={() => detailProduct && setArchiveTarget(detailProduct)}
         statusPending={productStatus.isPending}
         featuredPending={productFeatured.isPending}
+        archivePending={productArchive.isPending}
+      />
+
+      <ConfirmDialog
+        open={!!archiveTarget}
+        onClose={() => setArchiveTarget(null)}
+        onConfirm={() => archiveTarget && productArchive.mutate(archiveTarget.id)}
+        title="Excluir produto?"
+        description={
+          archiveTarget ? (
+            <>
+              O produto <strong>{archiveTarget.name}</strong> será arquivado e deixará de aparecer na loja. Pedidos,
+              histórico e auditoria permanecem preservados.
+            </>
+          ) : undefined
+        }
+        confirmLabel="Excluir produto"
+        loading={productArchive.isPending}
       />
     </div>
   );
@@ -514,8 +564,10 @@ function ProductDetailModal({
   priceHistoryLoading,
   onToggleStatus,
   onToggleFeatured,
+  onArchive,
   statusPending,
   featuredPending,
+  archivePending,
 }: {
   product: AdminProduct | null;
   open: boolean;
@@ -524,8 +576,10 @@ function ProductDetailModal({
   priceHistoryLoading: boolean;
   onToggleStatus: () => void;
   onToggleFeatured: () => void;
+  onArchive: () => void;
   statusPending: boolean;
   featuredPending: boolean;
+  archivePending: boolean;
 }) {
   const variantColumns: Column<AdminProductVariant>[] = [
     { key: 'sku', header: 'SKU', render: (v) => <span className="font-mono text-xs">{v.sku}</span> },
@@ -587,6 +641,11 @@ function ProductDetailModal({
             <ButtonLink size="sm" to={product ? `/admin/produtos/${product.id}` : '#'}>
               <PencilSimple size={15} /> Editar produto
             </ButtonLink>
+            {product.status !== 'Archived' && (
+              <Button variant="danger" size="sm" loading={archivePending} onClick={onArchive}>
+                <TrashSimple size={15} /> Excluir
+              </Button>
+            )}
           </>
         )
       }
