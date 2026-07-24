@@ -42,6 +42,9 @@ export interface AuthTokenContract extends StoredAuthTokens {
   user: BackendUserContract;
 }
 
+const ACCESS_TOKEN_REFRESH_SKEW_MS = 60 * 1000;
+let refreshTokensPromise: Promise<AuthTokenContract | null> | null = null;
+
 export interface ApiErrorPayload {
   success?: boolean;
   data?: unknown;
@@ -110,6 +113,11 @@ export function clearAuthTokens(): void {
   localStorage.removeItem(AUTH_TOKEN_EXPIRES_AT_STORAGE_KEY);
 }
 
+function shouldRefreshAccessToken(expiresAt: string): boolean {
+  const expiresAtMs = Date.parse(expiresAt);
+  return Number.isFinite(expiresAtMs) && expiresAtMs - Date.now() <= ACCESS_TOKEN_REFRESH_SKEW_MS;
+}
+
 function buildUrl(path: string, query?: Record<string, unknown>): string {
   const normalizedPath = path.startsWith('/') ? path : `/${path}`;
   const normalizedBasePath = API_BASE_PATH.startsWith('/') ? API_BASE_PATH : `/${API_BASE_PATH}`;
@@ -171,7 +179,12 @@ async function request<T>(path: string, options: RequestOptions, retried: boolea
     unwrapEnvelope = true,
     ...rest
   } = options;
-  const tokens = auth ? getAuthTokens() : null;
+  let tokens = auth ? getAuthTokens() : null;
+  if (tokens?.refreshToken && shouldRefreshAccessToken(tokens.expiresAt)) {
+    const refreshed = await refreshAuthTokens();
+    tokens = refreshed ? getAuthTokens() : null;
+  }
+
   const cartSessionId = canUseStorage() ? localStorage.getItem(CART_SESSION_STORAGE_KEY) : null;
   const hasJsonBody = body !== undefined && !(body instanceof FormData);
 
@@ -223,25 +236,33 @@ export async function http<T>(path: string, options: RequestOptions = {}): Promi
 export async function refreshAuthTokens(): Promise<AuthTokenContract | null> {
   const tokens = getAuthTokens();
   if (!tokens?.refreshToken) return null;
+  if (refreshTokensPromise) return refreshTokensPromise;
 
-  try {
-    const refreshed = await request<AuthTokenContract>(
-      '/auth/refresh',
-      {
-        method: 'POST',
-        auth: false,
-        retryOnUnauthorized: false,
-        body: { refreshToken: tokens.refreshToken },
-      },
-      true,
-    );
+  const refreshToken = tokens.refreshToken;
+  refreshTokensPromise = (async () => {
+    try {
+      const refreshed = await request<AuthTokenContract>(
+        '/auth/refresh',
+        {
+          method: 'POST',
+          auth: false,
+          retryOnUnauthorized: false,
+          body: { refreshToken },
+        },
+        true,
+      );
 
-    setAuthTokens(refreshed);
-    return refreshed;
-  } catch {
-    clearAuthTokens();
-    return null;
-  }
+      setAuthTokens(refreshed);
+      return refreshed;
+    } catch {
+      clearAuthTokens();
+      return null;
+    } finally {
+      refreshTokensPromise = null;
+    }
+  })();
+
+  return refreshTokensPromise;
 }
 
 /** Simula latencia de rede para os services mockados. */
