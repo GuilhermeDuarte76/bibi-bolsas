@@ -345,10 +345,13 @@ export function AdminProducts() {
             <Button
               size="sm"
               variant="danger"
+              className="h-9 w-9 px-0"
               loading={productArchive.isPending && productArchive.variables === product.id}
               onClick={() => setArchiveTarget(product)}
+              title="Excluir produto"
+              aria-label="Excluir produto"
             >
-              <TrashSimple size={15} /> Excluir
+              <TrashSimple size={16} weight="bold" />
             </Button>
           )}
           <ButtonLink size="sm" variant="outline" to={`/admin/produtos/${product.id}`} aria-label="Editar">
@@ -642,8 +645,16 @@ function ProductDetailModal({
               <PencilSimple size={15} /> Editar produto
             </ButtonLink>
             {product.status !== 'Archived' && (
-              <Button variant="danger" size="sm" loading={archivePending} onClick={onArchive}>
-                <TrashSimple size={15} /> Excluir
+              <Button
+                variant="danger"
+                size="sm"
+                className="h-9 w-9 px-0"
+                loading={archivePending}
+                onClick={onArchive}
+                title="Excluir produto"
+                aria-label="Excluir produto"
+              >
+                <TrashSimple size={16} weight="bold" />
               </Button>
             )}
           </>
