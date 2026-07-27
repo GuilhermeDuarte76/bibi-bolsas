@@ -4,6 +4,7 @@ import {
   ArrowSquareOut,
   CheckCircle,
   ClockCounterClockwise,
+  CopySimple,
   Eye,
   FileDashed,
   Package,
@@ -341,6 +342,16 @@ export function AdminProducts() {
               {product.status === 'Published' ? 'Despublicar' : 'Publicar'}
             </Button>
           )}
+          <ButtonLink
+            size="sm"
+            variant="ghost"
+            to={`/admin/produtos/novo?duplicar=${product.id}`}
+            className="h-9 w-9 px-0"
+            title="Duplicar produto"
+            aria-label={`Duplicar ${product.name}`}
+          >
+            <CopySimple size={16} weight="bold" />
+          </ButtonLink>
           {product.status !== 'Archived' && (
             <Button
               size="sm"
@@ -643,6 +654,9 @@ function ProductDetailModal({
             </Button>
             <ButtonLink size="sm" to={product ? `/admin/produtos/${product.id}` : '#'}>
               <PencilSimple size={15} /> Editar produto
+            </ButtonLink>
+            <ButtonLink size="sm" variant="outline" to={`/admin/produtos/novo?duplicar=${product.id}`}>
+              <CopySimple size={15} /> Duplicar
             </ButtonLink>
             {product.status !== 'Archived' && (
               <Button

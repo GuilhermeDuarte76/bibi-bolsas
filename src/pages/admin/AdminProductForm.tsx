@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent, type DragEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CaretLeft,
@@ -312,6 +312,30 @@ function formFromProduct(product: AdminProduct): ProductFormState {
   };
 }
 
+function duplicateFormFromProduct(product: AdminProduct): ProductFormState {
+  return {
+    ...formFromProduct(product),
+    name: `${product.name} (copia)`,
+    slug: '',
+    status: 'Draft',
+  };
+}
+
+function duplicateVariantsFromProduct(product: AdminProduct): VariantForm[] {
+  return variantFromProduct(product).map((variant, index) => ({
+    ...variant,
+    localId: newLocalId('variant'),
+    existing: false,
+    id: undefined,
+    sku: '',
+    barcode: '',
+    stockQuantity: 0,
+    reservedQuantity: 0,
+    isDefault: index === 0,
+    isActive: true,
+  }));
+}
+
 function cleanVariant(variant: VariantForm): AdminProductVariantInput {
   return {
     id: variant.id,
@@ -587,10 +611,15 @@ function FieldGroup({ title, children, className }: { title: string; children: R
 export function AdminProductForm() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const isNew = !id || id === 'novo';
+  const duplicateSourceId = isNew ? searchParams.get('duplicar') : null;
+  const isDuplicating = Boolean(duplicateSourceId);
+  const productQueryId = duplicateSourceId ?? (!isNew ? id : undefined);
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
   const imageReorderDragRef = useRef<string | null>(null);
+  const hydratedProductRef = useRef<string | null>(null);
 
   const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([emptyVariant(true)]);
@@ -616,9 +645,9 @@ export function AdminProductForm() {
   };
 
   const productQuery = useQuery({
-    queryKey: queryKeys.admin.product(id ?? ''),
-    queryFn: () => adminService.getAdminProduct(id ?? ''),
-    enabled: !isNew && Boolean(id),
+    queryKey: queryKeys.admin.product(productQueryId ?? ''),
+    queryFn: () => adminService.getAdminProduct(productQueryId ?? ''),
+    enabled: Boolean(productQueryId),
   });
 
   const categoriesQuery = useQuery({
@@ -677,13 +706,28 @@ export function AdminProductForm() {
   const activeImageScopeOption = imageScopeOptionByKey.get(activeImageScope) ?? imageScopeOptions[0];
 
   useEffect(() => {
-    if (!isNew && product) {
+    if (!product || !productQueryId) return;
+
+    const hydrationKey = `${isDuplicating ? 'duplicate' : 'edit'}:${productQueryId}`;
+    if (hydratedProductRef.current === hydrationKey) return;
+    hydratedProductRef.current = hydrationKey;
+
+    if (isDuplicating) {
+      setForm(duplicateFormFromProduct(product));
+      setVariants(duplicateVariantsFromProduct(product));
+      setImages([]);
+      setActiveImageScope(IMAGE_SCOPE_GENERAL);
+      setCurrentStep(0);
+      return;
+    }
+
+    if (!isNew) {
       const productVariants = variantFromProduct(product);
       setForm(formFromProduct(product));
       setVariants(productVariants);
       setImages(normalizeImageOrder(product.images.map((image) => imageFromProduct(image, productVariants)), productVariants));
     }
-  }, [isNew, product]);
+  }, [isDuplicating, isNew, product, productQueryId]);
 
   useEffect(() => {
     if (!imageScopeOptionByKey.has(activeImageScope)) setActiveImageScope(IMAGE_SCOPE_GENERAL);
@@ -1054,7 +1098,7 @@ export function AdminProductForm() {
     uploadImageFiles(event.dataTransfer.files);
   };
 
-  const isLoading = (!isNew && productQuery.isLoading) || categoriesQuery.isLoading;
+  const isLoading = (Boolean(productQueryId) && productQuery.isLoading) || categoriesQuery.isLoading;
 
   if (isLoading) {
     return (
@@ -1068,12 +1112,14 @@ export function AdminProductForm() {
     );
   }
 
-  if (!isNew && productQuery.isError) {
+  if ((isDuplicating || !isNew) && productQuery.isError) {
     return (
       <Card>
         <ErrorState
-          title="Produto não encontrado"
-          description="Não foi possível carregar este produto. Ele pode ter sido removido."
+          title={isDuplicating ? 'Produto de origem não encontrado' : 'Produto não encontrado'}
+          description={isDuplicating
+            ? 'Não foi possível carregar o produto usado como base para a cópia.'
+            : 'Não foi possível carregar este produto. Ele pode ter sido removido.'}
         />
         <div className="flex justify-center pb-6">
           <Button variant="outline" onClick={() => navigate('/admin/produtos')}>
@@ -1087,6 +1133,12 @@ export function AdminProductForm() {
   const statusTone: Tone = form.status === 'Published' ? 'success' : form.status === 'Archived' ? 'neutral' : 'warning';
   const statusLabel = form.status === 'Published' ? 'Publicado' : form.status === 'Archived' ? 'Arquivado' : 'Rascunho';
   const isLastStep = currentStep === STEPS.length - 1;
+  const pageTitle = isDuplicating ? 'Duplicar produto' : isNew ? 'Novo produto' : product?.name ?? 'Produto';
+  const pageSubtitle = isDuplicating
+    ? 'Revise os dados copiados e preencha os campos únicos antes de criar.'
+    : isNew
+      ? 'Cadastre um produto no catálogo com variações, imagens e SEO.'
+      : 'Atualize as informações, variações e imagens do produto.';
 
   // ---- Seções (reutilizadas nos modos etapas e completo) ----
 
@@ -1793,11 +1845,11 @@ export function AdminProductForm() {
         breadcrumbs={[
           { label: 'Catálogo' },
           { label: 'Produtos', to: '/admin/produtos' },
-          { label: isNew ? 'Novo produto' : 'Editar' },
+          { label: isDuplicating ? 'Duplicar produto' : isNew ? 'Novo produto' : 'Editar' },
         ]}
-        eyebrow={isNew ? 'Novo cadastro' : 'Edição'}
-        title={isNew ? 'Novo produto' : product?.name ?? 'Produto'}
-        subtitle={isNew ? 'Cadastre um produto no catálogo com variações, imagens e SEO.' : 'Atualize as informações, variações e imagens do produto.'}
+        eyebrow={isDuplicating ? 'Cópia de produto' : isNew ? 'Novo cadastro' : 'Edição'}
+        title={pageTitle}
+        subtitle={pageSubtitle}
         action={
           <div className="flex flex-wrap items-center gap-3">
             <SegmentedControl
@@ -1812,6 +1864,13 @@ export function AdminProductForm() {
           </div>
         }
       />
+
+      {isDuplicating && (
+        <Banner tone="warning" title="Cópia carregada como rascunho" className="mb-6">
+          Informações gerais, categorias, preços, atributos e logística foram copiadas. Preencha slug, SKUs únicos,
+          códigos de barras, estoque inicial e novas imagens antes de salvar.
+        </Banner>
+      )}
 
       {formError && (
         <Banner tone="danger" title="Revise o formulário" className="mb-6" onDismiss={() => setFormError(null)}>
