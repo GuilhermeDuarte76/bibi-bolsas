@@ -351,7 +351,7 @@ function cleanImage(
     storageKey: image.storageKey.trim() || storageKeyFromUrl(publicUrl),
     publicUrl,
     altText: image.altText?.trim() || undefined,
-    sortOrder: Number.isFinite(image.sortOrder) ? image.sortOrder : index,
+    sortOrder: index,
     isMain,
   };
 }
@@ -469,11 +469,9 @@ function prepareImageDrafts(
       scopeKey: imageScopeKey(image, variants),
     }));
 
-  const scopeHasMain = new Map<string, boolean>();
   const scopeFirstImage = new Map<string, string>();
   for (const entry of entries) {
     if (!scopeFirstImage.has(entry.scopeKey)) scopeFirstImage.set(entry.scopeKey, entry.image.localId);
-    if (entry.image.isMain) scopeHasMain.set(entry.scopeKey, true);
   }
 
   const scopeSortOrder = new Map<string, number>();
@@ -481,9 +479,7 @@ function prepareImageDrafts(
     const sortOrder = scopeSortOrder.get(entry.scopeKey) ?? 0;
     scopeSortOrder.set(entry.scopeKey, sortOrder + 1);
 
-    const isMain = scopeHasMain.get(entry.scopeKey)
-      ? entry.image.isMain
-      : scopeFirstImage.get(entry.scopeKey) === entry.image.localId;
+    const isMain = scopeFirstImage.get(entry.scopeKey) === entry.image.localId;
 
     return {
       source: entry.image,
@@ -495,6 +491,48 @@ function prepareImageDrafts(
       ),
     };
   });
+}
+
+function moveArrayItem<T>(items: T[], fromIndex: number, toIndex: number): T[] {
+  if (fromIndex === toIndex || fromIndex < 0 || toIndex < 0 || fromIndex >= items.length || toIndex >= items.length) {
+    return items;
+  }
+
+  const next = [...items];
+  const [item] = next.splice(fromIndex, 1);
+  next.splice(toIndex, 0, item);
+  return next;
+}
+
+function normalizeImageOrder(images: ImageForm[], variants: VariantForm[]): ImageForm[] {
+  const scopeIndexes = new Map<string, number>();
+
+  return images.map((image) => {
+    const scopeKey = imageScopeKey(image, variants);
+    const sortOrder = scopeIndexes.get(scopeKey) ?? 0;
+    scopeIndexes.set(scopeKey, sortOrder + 1);
+
+    const isMain = sortOrder === 0;
+    return image.sortOrder === sortOrder && image.isMain === isMain
+      ? image
+      : { ...image, sortOrder, isMain };
+  });
+}
+
+function replaceImagesInScope(
+  images: ImageForm[],
+  variants: VariantForm[],
+  scopeKey: string,
+  scopedImages: ImageForm[],
+): ImageForm[] {
+  let scopedIndex = 0;
+  const next = images.map((image) => (
+    imageScopeKey(image, variants) === scopeKey
+      ? scopedImages[scopedIndex++] ?? image
+      : image
+  ));
+
+  return normalizeImageOrder(next, variants);
 }
 
 /** Interruptor estilizado para flags booleanas. */
@@ -552,12 +590,15 @@ export function AdminProductForm() {
   const queryClient = useQueryClient();
   const isNew = !id || id === 'novo';
   const imageUploadInputRef = useRef<HTMLInputElement | null>(null);
+  const imageReorderDragRef = useRef<string | null>(null);
 
   const [form, setForm] = useState<ProductFormState>(DEFAULT_FORM);
   const [variants, setVariants] = useState<VariantForm[]>([emptyVariant(true)]);
   const [images, setImages] = useState<ImageForm[]>([]);
   const [activeImageScope, setActiveImageScope] = useState(IMAGE_SCOPE_GENERAL);
   const [isDraggingImages, setIsDraggingImages] = useState(false);
+  const [draggingImageId, setDraggingImageId] = useState<string | null>(null);
+  const [dragOverImageId, setDragOverImageId] = useState<string | null>(null);
   const [formError, setFormError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<'steps' | 'full'>(
     () => (localStorage.getItem(FORM_MODE_KEY) === 'full' ? 'full' : 'steps'),
@@ -640,7 +681,7 @@ export function AdminProductForm() {
       const productVariants = variantFromProduct(product);
       setForm(formFromProduct(product));
       setVariants(productVariants);
-      setImages(product.images.map((image) => imageFromProduct(image, productVariants)));
+      setImages(normalizeImageOrder(product.images.map((image) => imageFromProduct(image, productVariants)), productVariants));
     }
   }, [isNew, product]);
 
@@ -755,7 +796,8 @@ export function AdminProductForm() {
         const scopedPatch = imageScopePatch(scopeOption);
         const hasMainImage = current.some((image) => imageScopeKey(image, variants) === scopeKey && image.isMain);
 
-        return [
+        const scopedSortOrder = current.filter((image) => imageScopeKey(image, variants) === scopeKey).length;
+        return normalizeImageOrder([
           ...current,
           {
             ...emptyImage(),
@@ -763,10 +805,10 @@ export function AdminProductForm() {
             storageKey: upload.storageKey,
             publicUrl: upload.publicUrl,
             altText: form.name.trim() || file.name,
-            sortOrder: current.length,
+            sortOrder: scopedSortOrder,
             isMain: !hasMainImage,
           },
-        ];
+        ], variants);
       });
 
       toast.success({ title: 'Imagem enviada', description: 'A foto foi adicionada ao grupo selecionado.' });
@@ -838,14 +880,14 @@ export function AdminProductForm() {
       if (!next.some((variant) => variant.isDefault)) next[0].isDefault = true;
       return next;
     });
-    setImages((current) => current.map((image) => {
+    setImages((current) => normalizeImageOrder(current.map((image) => {
       const referencesRemovedVariant = image.variantLocalId === localId ||
         (removedVariant?.id && image.productVariantId === removedVariant.id);
 
       return referencesRemovedVariant
         ? { ...image, productVariantId: undefined, variantLocalId: undefined }
         : image;
-    }));
+    }), variants));
     if (activeImageScope === localId) setActiveImageScope(IMAGE_SCOPE_GENERAL);
   };
 
@@ -863,11 +905,11 @@ export function AdminProductForm() {
       const selected = current.find((image) => image.localId === localId);
       if (!selected) return current;
 
-      return current.map((image) => {
+      return normalizeImageOrder(current.map((image) => {
         if (image.localId === localId) return { ...image, ...scopedPatch };
         if (selected.isMain && imageScopeKey(image, variants) === scopeKey) return { ...image, isMain: false };
         return image;
-      });
+      }), variants);
     });
   };
 
@@ -876,13 +918,106 @@ export function AdminProductForm() {
       const selected = current.find((image) => image.localId === localId);
       if (!selected) return current;
       const selectedScopeKey = imageScopeKey(selected, variants);
+      const scopedImages = current.filter((image) => imageScopeKey(image, variants) === selectedScopeKey);
+      const fromIndex = scopedImages.findIndex((image) => image.localId === localId);
+      if (fromIndex <= 0) return normalizeImageOrder(current, variants);
 
-      return current.map((image) => (
-        imageScopeKey(image, variants) === selectedScopeKey
-          ? { ...image, isMain: image.localId === localId }
-          : image
-      ));
+      return replaceImagesInScope(
+        current,
+        variants,
+        selectedScopeKey,
+        moveArrayItem(scopedImages, fromIndex, 0),
+      );
     });
+  };
+
+  const reorderImageInActiveScope = (fromLocalId: string, toLocalId: string) => {
+    if (fromLocalId === toLocalId) return;
+
+    setImages((current) => {
+      const scopedImages = current.filter((image) => imageScopeKey(image, variants) === activeImageScope);
+      const fromIndex = scopedImages.findIndex((image) => image.localId === fromLocalId);
+      const toIndex = scopedImages.findIndex((image) => image.localId === toLocalId);
+      if (fromIndex === -1 || toIndex === -1) return current;
+
+      return replaceImagesInScope(
+        current,
+        variants,
+        activeImageScope,
+        moveArrayItem(scopedImages, fromIndex, toIndex),
+      );
+    });
+  };
+
+  const moveImageInActiveScope = (localId: string, direction: -1 | 1) => {
+    setImages((current) => {
+      const scopedImages = current.filter((image) => imageScopeKey(image, variants) === activeImageScope);
+      const fromIndex = scopedImages.findIndex((image) => image.localId === localId);
+      const toIndex = fromIndex + direction;
+      if (fromIndex === -1 || toIndex < 0 || toIndex >= scopedImages.length) return current;
+
+      return replaceImagesInScope(
+        current,
+        variants,
+        activeImageScope,
+        moveArrayItem(scopedImages, fromIndex, toIndex),
+      );
+    });
+  };
+
+  const moveImageToPosition = (localId: string, position: number | undefined) => {
+    if (position == null || !Number.isFinite(position)) return;
+
+    setImages((current) => {
+      const scopedImages = current.filter((image) => imageScopeKey(image, variants) === activeImageScope);
+      const fromIndex = scopedImages.findIndex((image) => image.localId === localId);
+      if (fromIndex === -1) return current;
+
+      const toIndex = Math.max(0, Math.min(scopedImages.length - 1, Math.trunc(position) - 1));
+      if (fromIndex === toIndex) return current;
+
+      return replaceImagesInScope(
+        current,
+        variants,
+        activeImageScope,
+        moveArrayItem(scopedImages, fromIndex, toIndex),
+      );
+    });
+  };
+
+  const handleImageReorderDragStart = (event: DragEvent<HTMLElement>, localId: string) => {
+    event.stopPropagation();
+    imageReorderDragRef.current = localId;
+    setDraggingImageId(localId);
+    event.dataTransfer.effectAllowed = 'move';
+    event.dataTransfer.setData('text/plain', localId);
+  };
+
+  const handleImageReorderDragOver = (event: DragEvent<HTMLDivElement>, localId: string) => {
+    const draggedId = imageReorderDragRef.current;
+    if (!draggedId || draggedId === localId) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDragOverImageId(localId);
+  };
+
+  const handleImageReorderDrop = (event: DragEvent<HTMLDivElement>, localId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+
+    const draggedId = imageReorderDragRef.current || event.dataTransfer.getData('text/plain');
+    if (draggedId) reorderImageInActiveScope(draggedId, localId);
+
+    imageReorderDragRef.current = null;
+    setDraggingImageId(null);
+    setDragOverImageId(null);
+  };
+
+  const handleImageReorderDragEnd = () => {
+    imageReorderDragRef.current = null;
+    setDraggingImageId(null);
+    setDragOverImageId(null);
   };
 
   const uploadImageFiles = (files: FileList | File[] | null | undefined) => {
@@ -1414,12 +1549,26 @@ export function AdminProductForm() {
 
       {visibleImages.length > 0 && (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-          {visibleImages.map((image) => {
+          {visibleImages.map((image, index) => {
             const scopeKey = imageScopeKey(image, variants);
             const scopeLabel = imageScopeOptionByKey.get(scopeKey)?.label ?? 'Produto geral';
+            const isDragging = draggingImageId === image.localId;
+            const isDropTarget = dragOverImageId === image.localId && draggingImageId !== image.localId;
+            const canMoveBack = index > 0;
+            const canMoveForward = index < visibleImages.length - 1;
 
             return (
-              <div key={image.localId} className="rounded-[var(--radius-md)] border border-border bg-surface p-2">
+              <div
+                key={image.localId}
+                onDragOver={(event) => handleImageReorderDragOver(event, image.localId)}
+                onDragLeave={() => setDragOverImageId((current) => current === image.localId ? null : current)}
+                onDrop={(event) => handleImageReorderDrop(event, image.localId)}
+                className={cn(
+                  'rounded-[var(--radius-md)] border border-border bg-surface p-2 transition',
+                  isDragging && 'opacity-60',
+                  isDropTarget && 'border-terracotta ring-2 ring-terracotta/25',
+                )}
+              >
                 <div className="group relative aspect-square overflow-hidden rounded-[var(--radius-sm)] bg-cream-light">
                   {image.publicUrl ? (
                     <img src={image.publicUrl} alt={image.altText ?? ''} className="h-full w-full object-cover" />
@@ -1429,8 +1578,11 @@ export function AdminProductForm() {
                     </div>
                   )}
 
-                  <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-12px)] truncate rounded-full bg-surface/90 px-2 py-1 text-[11px] font-medium text-graphite shadow-sm">
+                  <span className="absolute bottom-1.5 left-1.5 max-w-[calc(100%-64px)] truncate rounded-full bg-surface/90 px-2 py-1 text-[11px] font-medium text-graphite shadow-sm">
                     {scopeLabel}
+                  </span>
+                  <span className="absolute bottom-1.5 right-1.5 rounded-full bg-graphite/85 px-2 py-1 text-[11px] font-semibold text-white shadow-sm">
+                    #{index + 1}
                   </span>
 
                   {image.isMain && (
@@ -1442,10 +1594,19 @@ export function AdminProductForm() {
                   )}
 
                   <div className="absolute right-1.5 top-1.5 flex gap-1 opacity-100 sm:opacity-0 sm:transition-opacity sm:group-hover:opacity-100 sm:group-focus-within:opacity-100">
+                    <span
+                      title="Arrastar para ordenar"
+                      draggable
+                      onDragStart={(event) => handleImageReorderDragStart(event, image.localId)}
+                      onDragEnd={handleImageReorderDragEnd}
+                      className="tactile grid h-7 w-7 cursor-grab place-items-center rounded-full bg-surface/90 text-graphite shadow-sm active:cursor-grabbing"
+                    >
+                      <Rows size={14} />
+                    </span>
                     {!image.isMain && (
                       <button
                         type="button"
-                        title="Tornar principal"
+                        title="Mover para primeira posição"
                         onClick={() => setMainImage(image.localId)}
                         className="tactile grid h-7 w-7 place-items-center rounded-full bg-surface/90 text-graphite shadow-sm hover:text-terracotta"
                       >
@@ -1464,6 +1625,44 @@ export function AdminProductForm() {
                 </div>
 
                 <div className="mt-2 grid gap-2">
+                  <div className="grid grid-cols-[36px_minmax(0,1fr)_36px] items-end gap-2">
+                    <button
+                      type="button"
+                      title="Mover para trás"
+                      disabled={!canMoveBack}
+                      onClick={() => moveImageInActiveScope(image.localId, -1)}
+                      className={cn(
+                        'tactile grid h-11 w-9 place-items-center rounded-[var(--radius-md)] border border-border bg-surface text-graphite transition-colors hover:border-terracotta/50 hover:text-terracotta',
+                        !canMoveBack && 'pointer-events-none opacity-40',
+                      )}
+                    >
+                      <CaretLeft size={15} weight="bold" />
+                    </button>
+                    <Field label={`Ordem ${index + 1}/${visibleImages.length}`}>
+                      {(fieldId) => (
+                        <NumberInput
+                          id={fieldId}
+                          min={1}
+                          max={visibleImages.length}
+                          value={index + 1}
+                          onChange={(value) => moveImageToPosition(image.localId, value)}
+                          align="right"
+                        />
+                      )}
+                    </Field>
+                    <button
+                      type="button"
+                      title="Mover para frente"
+                      disabled={!canMoveForward}
+                      onClick={() => moveImageInActiveScope(image.localId, 1)}
+                      className={cn(
+                        'tactile grid h-11 w-9 place-items-center rounded-[var(--radius-md)] border border-border bg-surface text-graphite transition-colors hover:border-terracotta/50 hover:text-terracotta',
+                        !canMoveForward && 'pointer-events-none opacity-40',
+                      )}
+                    >
+                      <CaretRight size={15} weight="bold" />
+                    </button>
+                  </div>
                   <Field label="Imagem de">
                     {(fieldId) => (
                       <Select
