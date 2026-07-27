@@ -6,7 +6,6 @@ import {
   AUTH_TOKEN_TYPE_STORAGE_KEY,
   CART_SESSION_STORAGE_KEY,
   MOCK_LATENCY,
-  REFRESH_TOKEN_STORAGE_KEY,
 } from './config';
 
 /**
@@ -33,16 +32,17 @@ export interface BackendUserContract {
 
 export interface StoredAuthTokens {
   accessToken: string;
-  refreshToken: string;
   tokenType: string;
   expiresAt: string;
 }
 
 export interface AuthTokenContract extends StoredAuthTokens {
+  refreshToken?: string;
   user: BackendUserContract;
 }
 
 const ACCESS_TOKEN_REFRESH_SKEW_MS = 60 * 1000;
+const LEGACY_REFRESH_TOKEN_STORAGE_KEY = 'bibi.auth.refreshToken.v1';
 let refreshTokensPromise: Promise<AuthTokenContract | null> | null = null;
 
 export interface ApiErrorPayload {
@@ -88,12 +88,10 @@ export function getAuthTokens(): StoredAuthTokens | null {
   if (!canUseStorage()) return null;
 
   const accessToken = localStorage.getItem(AUTH_TOKEN_STORAGE_KEY);
-  const refreshToken = localStorage.getItem(REFRESH_TOKEN_STORAGE_KEY);
-  if (!accessToken || !refreshToken) return null;
+  if (!accessToken) return null;
 
   return {
     accessToken,
-    refreshToken,
     tokenType: localStorage.getItem(AUTH_TOKEN_TYPE_STORAGE_KEY) || 'Bearer',
     expiresAt: localStorage.getItem(AUTH_TOKEN_EXPIRES_AT_STORAGE_KEY) || '',
   };
@@ -103,18 +101,18 @@ export function setAuthTokens(tokens: StoredAuthTokens): void {
   if (!canUseStorage()) return;
 
   localStorage.setItem(AUTH_TOKEN_STORAGE_KEY, tokens.accessToken);
-  localStorage.setItem(REFRESH_TOKEN_STORAGE_KEY, tokens.refreshToken);
   localStorage.setItem(AUTH_TOKEN_TYPE_STORAGE_KEY, tokens.tokenType || 'Bearer');
   localStorage.setItem(AUTH_TOKEN_EXPIRES_AT_STORAGE_KEY, tokens.expiresAt);
+  localStorage.removeItem(LEGACY_REFRESH_TOKEN_STORAGE_KEY);
 }
 
 export function clearAuthTokens(): void {
   if (!canUseStorage()) return;
 
   localStorage.removeItem(AUTH_TOKEN_STORAGE_KEY);
-  localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
   localStorage.removeItem(AUTH_TOKEN_TYPE_STORAGE_KEY);
   localStorage.removeItem(AUTH_TOKEN_EXPIRES_AT_STORAGE_KEY);
+  localStorage.removeItem(LEGACY_REFRESH_TOKEN_STORAGE_KEY);
 }
 
 function shouldRefreshAccessToken(expiresAt: string): boolean {
@@ -181,10 +179,11 @@ async function request<T>(path: string, options: RequestOptions, retried: boolea
     auth = true,
     retryOnUnauthorized = true,
     unwrapEnvelope = true,
+    credentials = 'include',
     ...rest
   } = options;
   let tokens = auth ? getAuthTokens() : null;
-  if (tokens?.refreshToken && shouldRefreshAccessToken(tokens.expiresAt)) {
+  if (tokens?.accessToken && shouldRefreshAccessToken(tokens.expiresAt)) {
     const refreshed = await refreshAuthTokens();
     tokens = refreshed ? getAuthTokens() : getAuthTokens();
   }
@@ -208,6 +207,7 @@ async function request<T>(path: string, options: RequestOptions, retried: boolea
         : hasJsonBody
           ? JSON.stringify(body)
           : (body as BodyInit),
+    credentials,
     ...rest,
   });
 
@@ -238,11 +238,10 @@ export async function http<T>(path: string, options: RequestOptions = {}): Promi
 }
 
 export async function refreshAuthTokens(): Promise<AuthTokenContract | null> {
-  const tokens = getAuthTokens();
-  if (!tokens?.refreshToken) return null;
   if (refreshTokensPromise) return refreshTokensPromise;
 
-  const refreshToken = tokens.refreshToken;
+  const accessTokenBeforeRefresh = getAuthTokens()?.accessToken;
+  const legacyRefreshToken = canUseStorage() ? localStorage.getItem(LEGACY_REFRESH_TOKEN_STORAGE_KEY) : null;
   refreshTokensPromise = (async () => {
     try {
       const refreshed = await request<AuthTokenContract>(
@@ -251,7 +250,7 @@ export async function refreshAuthTokens(): Promise<AuthTokenContract | null> {
           method: 'POST',
           auth: false,
           retryOnUnauthorized: false,
-          body: { refreshToken },
+          body: legacyRefreshToken ? { refreshToken: legacyRefreshToken } : undefined,
         },
         true,
       );
@@ -260,7 +259,7 @@ export async function refreshAuthTokens(): Promise<AuthTokenContract | null> {
       return refreshed;
     } catch (error) {
       const latestTokens = getAuthTokens();
-      if (latestTokens?.refreshToken && latestTokens.refreshToken !== refreshToken) {
+      if (latestTokens?.accessToken && latestTokens.accessToken !== accessTokenBeforeRefresh) {
         try {
           const user = await request<BackendUserContract>('/me', { retryOnUnauthorized: false }, true);
           return { ...latestTokens, user };

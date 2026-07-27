@@ -74,6 +74,13 @@ async function authenticate(email: string, password: string): Promise<Session> {
   return session;
 }
 
+async function revokeCurrentSession(): Promise<void> {
+  await http<void>('/auth/revoke', {
+    method: 'POST',
+    retryOnUnauthorized: true,
+  });
+}
+
 /** Autenticacao. */
 export const authService = {
   async login(email: string, password: string): Promise<Session> {
@@ -122,6 +129,12 @@ export const authService = {
 
     const session = await authenticate(email, password);
     if (!session.isAdmin) {
+      try {
+        await revokeCurrentSession();
+      } catch {
+        // O cookie tambem expira sozinho; nao bloqueia a mensagem correta de acesso negado.
+      }
+
       clearAuthTokens();
       localStorage.removeItem(AUTH_STORAGE_KEY);
       throw new ApiError('Este usuario nao possui acesso administrativo.', 403);
@@ -136,7 +149,16 @@ export const authService = {
       return delay(raw ? (JSON.parse(raw) as Session) : null, 120);
     }
 
-    if (!getAuthTokens()) return null;
+    if (!getAuthTokens()) {
+      const refreshed = await refreshAuthTokens();
+      if (refreshed) {
+        const session = mapBackendUserToSession(refreshed.user);
+        cacheSession(session);
+        return session;
+      }
+
+      return null;
+    }
 
     try {
       const user = await http<BackendUserContract>('/me');
@@ -184,14 +206,7 @@ export const authService = {
     if (USE_MOCK) return delay(undefined, 120);
 
     try {
-      const tokens = getAuthTokens();
-      if (tokens) {
-        await http<void>('/auth/revoke', {
-          method: 'POST',
-          retryOnUnauthorized: false,
-          body: { refreshToken: tokens.refreshToken },
-        });
-      }
+      if (getAuthTokens()) await revokeCurrentSession();
     } finally {
       clearAuthTokens();
     }
