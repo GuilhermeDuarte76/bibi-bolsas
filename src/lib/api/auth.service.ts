@@ -6,6 +6,7 @@ import {
   delay,
   getAuthTokens,
   http,
+  isAuthenticationError,
   refreshAuthTokens,
   setAuthTokens,
   type AuthTokenContract,
@@ -37,6 +38,29 @@ function mapBackendUserToSession(user: BackendUserContract): Session {
   };
 }
 
+function canUseBrowserStorage(): boolean {
+  return typeof window !== 'undefined' && typeof window.localStorage !== 'undefined';
+}
+
+function cacheSession(session: Session): void {
+  if (!canUseBrowserStorage()) return;
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(session));
+}
+
+function readCachedSession(): Session | null {
+  if (!canUseBrowserStorage()) return null;
+
+  const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    return JSON.parse(raw) as Session;
+  } catch {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return null;
+  }
+}
+
 async function authenticate(email: string, password: string): Promise<Session> {
   const token = await http<AuthTokenContract>('/auth/login', {
     method: 'POST',
@@ -45,7 +69,9 @@ async function authenticate(email: string, password: string): Promise<Session> {
   });
 
   setAuthTokens(token);
-  return mapBackendUserToSession(token.user);
+  const session = mapBackendUserToSession(token.user);
+  cacheSession(session);
+  return session;
 }
 
 /** Autenticacao. */
@@ -97,6 +123,7 @@ export const authService = {
     const session = await authenticate(email, password);
     if (!session.isAdmin) {
       clearAuthTokens();
+      localStorage.removeItem(AUTH_STORAGE_KEY);
       throw new ApiError('Este usuario nao possui acesso administrativo.', 403);
     }
 
@@ -113,11 +140,40 @@ export const authService = {
 
     try {
       const user = await http<BackendUserContract>('/me');
-      return mapBackendUserToSession(user);
-    } catch {
+      const session = mapBackendUserToSession(user);
+      cacheSession(session);
+      return session;
+    } catch (error) {
+      if (!isAuthenticationError(error)) {
+        const cachedSession = readCachedSession();
+        if (cachedSession) return cachedSession;
+        throw error;
+      }
+
       const refreshed = await refreshAuthTokens();
-      if (refreshed) return mapBackendUserToSession(refreshed.user);
+      if (refreshed) {
+        const session = mapBackendUserToSession(refreshed.user);
+        cacheSession(session);
+        return session;
+      }
+
+      if (getAuthTokens()) {
+        try {
+          const user = await http<BackendUserContract>('/me', { retryOnUnauthorized: false });
+          const session = mapBackendUserToSession(user);
+          cacheSession(session);
+          return session;
+        } catch (sessionError) {
+          if (!isAuthenticationError(sessionError)) {
+            const cachedSession = readCachedSession();
+            if (cachedSession) return cachedSession;
+            throw sessionError;
+          }
+        }
+      }
+
       clearAuthTokens();
+      localStorage.removeItem(AUTH_STORAGE_KEY);
       return null;
     }
   },
@@ -128,7 +184,14 @@ export const authService = {
     if (USE_MOCK) return delay(undefined, 120);
 
     try {
-      if (getAuthTokens()) await http<void>('/auth/revoke', { method: 'POST', retryOnUnauthorized: false });
+      const tokens = getAuthTokens();
+      if (tokens) {
+        await http<void>('/auth/revoke', {
+          method: 'POST',
+          retryOnUnauthorized: false,
+          body: { refreshToken: tokens.refreshToken },
+        });
+      }
     } finally {
       clearAuthTokens();
     }

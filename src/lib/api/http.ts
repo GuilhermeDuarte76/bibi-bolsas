@@ -64,6 +64,10 @@ export class ApiError extends Error {
   }
 }
 
+export function isAuthenticationError(error: unknown): boolean {
+  return error instanceof ApiError && (error.status === 401 || error.status === 403);
+}
+
 interface RequestOptions extends Omit<RequestInit, 'body'> {
   body?: unknown;
   /** Querystring serializada automaticamente. */
@@ -182,7 +186,7 @@ async function request<T>(path: string, options: RequestOptions, retried: boolea
   let tokens = auth ? getAuthTokens() : null;
   if (tokens?.refreshToken && shouldRefreshAccessToken(tokens.expiresAt)) {
     const refreshed = await refreshAuthTokens();
-    tokens = refreshed ? getAuthTokens() : null;
+    tokens = refreshed ? getAuthTokens() : getAuthTokens();
   }
 
   const cartSessionId = canUseStorage() ? localStorage.getItem(CART_SESSION_STORAGE_KEY) : null;
@@ -254,8 +258,19 @@ export async function refreshAuthTokens(): Promise<AuthTokenContract | null> {
 
       setAuthTokens(refreshed);
       return refreshed;
-    } catch {
-      clearAuthTokens();
+    } catch (error) {
+      const latestTokens = getAuthTokens();
+      if (latestTokens?.refreshToken && latestTokens.refreshToken !== refreshToken) {
+        try {
+          const user = await request<BackendUserContract>('/me', { retryOnUnauthorized: false }, true);
+          return { ...latestTokens, user };
+        } catch (sessionError) {
+          if (isAuthenticationError(sessionError)) clearAuthTokens();
+          return null;
+        }
+      }
+
+      if (isAuthenticationError(error)) clearAuthTokens();
       return null;
     } finally {
       refreshTokensPromise = null;
