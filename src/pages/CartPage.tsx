@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router';
 import { useMutation } from '@tanstack/react-query';
 import { Handbag, Minus, Plus, Tag, Trash, X } from '@phosphor-icons/react';
 import { useCart } from '@/store/cart';

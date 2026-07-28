@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from 'react-router-dom';
+import { NavLink, Outlet, useNavigate } from 'react-router';
 import { MapPin, Package, SignOut, Star, User } from '@phosphor-icons/react';
 import { useAuth } from '@/hooks/useAuth';
 import { Container } from '@/components/ui/Layout';

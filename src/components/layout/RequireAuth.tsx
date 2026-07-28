@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from 'react-router-dom';
+import { Navigate, useLocation } from 'react-router';
 import { useAuth } from '@/hooks/useAuth';
 import { Container } from '@/components/ui/Layout';
 import { Skeleton } from '@/components/ui/Skeleton';

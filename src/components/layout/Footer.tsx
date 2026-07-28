@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import { InstagramLogo, Lock, ShieldCheck, Truck } from '@phosphor-icons/react';
 import { Logo } from './Logo';
 import { Container } from '@/components/ui/Layout';

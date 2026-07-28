@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useLocation } from 'react-router-dom';
+import { useLocation } from 'react-router';
 import { CheckCircle, Copy, Clock, QrCode } from '@phosphor-icons/react';
 import type { CheckoutResult } from '@/lib/api';
 import { checkoutService } from '@/lib/api';

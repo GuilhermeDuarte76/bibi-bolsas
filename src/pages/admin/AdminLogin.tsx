@@ -1,5 +1,5 @@
 import { useForm } from 'react-hook-form';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router';
 import { ShieldCheck, LockKey, Sparkle } from '@phosphor-icons/react';
 import { useAuth } from '@/hooks/useAuth';
 import { USE_MOCK } from '@/lib/api/config';

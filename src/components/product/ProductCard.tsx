@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 import type { ProductSummary } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Stars } from '@/components/ui/Stars';

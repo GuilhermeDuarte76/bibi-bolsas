@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import { useParams, useSearchParams } from 'react-router-dom';
+import { useParams, useSearchParams } from 'react-router';
 import { useQuery, keepPreviousData } from '@tanstack/react-query';
 import { FunnelSimple, SlidersHorizontal, X } from '@phosphor-icons/react';
 import { catalogService, queryKeys } from '@/lib/api';

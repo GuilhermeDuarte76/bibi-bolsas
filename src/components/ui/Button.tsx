@@ -1,5 +1,5 @@
 import { forwardRef } from 'react';
-import { Link, type LinkProps } from 'react-router-dom';
+import { Link, type LinkProps } from 'react-router';
 import { CircleNotch } from '@phosphor-icons/react';
 import { cn } from '@/lib/utils';
 
