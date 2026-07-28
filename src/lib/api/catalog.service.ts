@@ -300,12 +300,25 @@ async function fetchBackendProducts(
   return mapPagedProducts(result, category);
 }
 
-function mapVariantColor(variant: BackendProductVariantDto): ProductColor {
-  const name = variant.color?.trim() || 'Padrão';
+function mapVariantColor(variant: BackendProductVariantDto, variants: BackendProductVariantDto[] = [variant]): ProductColor {
+  const baseName = variant.color?.trim() || variant.name.trim() || 'Padrão';
+  const normalizedBaseName = normalizeToken(baseName) || 'padrao';
+  const variantsWithSameColorName = variants.filter((item) =>
+    normalizeToken(item.color?.trim() || item.name.trim() || 'Padrão') === normalizedBaseName,
+  );
+  const differentVisualColors = new Set(
+    variantsWithSameColorName.map((item) => (item.colorHex || '').trim().toLowerCase()),
+  ).size > 1;
+  const variantName = variant.name.trim();
+  const name = differentVisualColors && variantName && normalizeToken(variantName) !== normalizedBaseName
+    ? variantName
+    : baseName;
+  const hex = variant.colorHex || '#a5603f';
+
   return {
-    id: `cor-${normalizeToken(name) || 'padrao'}`,
+    id: `cor-${normalizeToken(name) || normalizedBaseName}-${normalizeToken(hex) || 'sem-cor'}`,
     name,
-    hex: variant.colorHex || '#a5603f',
+    hex,
   };
 }
 
@@ -323,7 +336,7 @@ function uniqueById<T extends { id: string }>(items: T[]): T[] {
 
 function mapBackendDetail(dto: BackendProductDetailDto): Product {
   const categorySlug = asCategorySlug(dto.categories[0]?.slug ?? inferBaseCategory(dto.name));
-  const colors = uniqueById(dto.variants.map(mapVariantColor));
+  const colors = uniqueById(dto.variants.map((variant) => mapVariantColor(variant, dto.variants)));
   const sizes = uniqueById(dto.variants.map(mapVariantSize));
   const media: ProductMedia[] = dto.images.length
     ? dto.images.map((image) => ({
@@ -343,7 +356,7 @@ function mapBackendDetail(dto: BackendProductDetailDto): Product {
       ];
 
   const variants: ProductVariant[] = dto.variants.map((variant) => {
-    const color = mapVariantColor(variant);
+    const color = mapVariantColor(variant, dto.variants);
     const size = mapVariantSize(variant);
     const basePriceCents = toCents(variant.price) ?? 0;
     const promoPriceCents = toCents(variant.promotionalPrice);
@@ -351,8 +364,10 @@ function mapBackendDetail(dto: BackendProductDetailDto): Product {
     return {
       id: String(variant.id),
       sku: variant.sku,
+      name: variant.name,
       colorId: color.id,
       sizeId: size.id,
+      material: variant.material ?? undefined,
       priceCents: promoPriceCents ?? basePriceCents,
       compareAtCents: promoPriceCents ? basePriceCents : undefined,
       stock: variant.isAvailable ? 99 : 0,

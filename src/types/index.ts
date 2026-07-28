@@ -58,8 +58,10 @@ export interface ProductSize {
 export interface ProductVariant {
   id: string;
   sku: string;
+  name?: string;
   colorId: string;
   sizeId?: string;
+  material?: string;
   /** Preco em centavos. */
   priceCents: number;
   /** Preco "de" (antes do desconto) em centavos, quando em promocao. */

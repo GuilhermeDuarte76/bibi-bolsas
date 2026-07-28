@@ -22,6 +22,36 @@ import { StockBadge } from '@/components/product/StockBadge';
 import { ShippingCalculator } from '@/components/product/ShippingCalculator';
 import { ProductCard } from '@/components/product/ProductCard';
 import { reviews as allReviews } from '@/lib/api/mock/account';
+import type { Product, ProductVariant } from '@/types';
+
+function normalizeVariantLabel(value?: string) {
+  return (value ?? '')
+    .trim()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+}
+
+function variantOptionLabel(product: Product, variant: ProductVariant) {
+  const color = product.colors.find((c) => c.id === variant.colorId);
+  const size = product.sizes.find((s) => s.id === variant.sizeId);
+  const parts = [variant.name, color?.name, size?.label === 'Unico' ? undefined : size?.label, variant.material]
+    .map((part) => part?.trim())
+    .filter((part): part is string => Boolean(part));
+  const seen = new Set<string>();
+  const uniqueParts = parts.filter((part) => {
+    const key = normalizeVariantLabel(part);
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  return uniqueParts.join(' / ') || variant.sku;
+}
+
+function variantSelectionKey(variant: ProductVariant) {
+  return `${variant.colorId}|${variant.sizeId ?? ''}`;
+}
 
 export function ProductPage() {
   const { slug } = useParams<{ slug: string }>();
@@ -43,6 +73,7 @@ export function ProductPage() {
 
   const [colorId, setColorId] = useState<string>();
   const [sizeId, setSizeId] = useState<string>();
+  const [variantId, setVariantId] = useState<string>();
   const [qty, setQty] = useState(1);
 
   const selectedColor = colorId ?? product?.colors[0]?.id;
@@ -50,6 +81,11 @@ export function ProductPage() {
 
   const variant = useMemo(() => {
     if (!product) return undefined;
+    if (variantId) {
+      const directVariant = product.variants.find((v) => v.id === variantId);
+      if (directVariant) return directVariant;
+    }
+
     return (
       product.variants.find(
         (v) =>
@@ -57,7 +93,12 @@ export function ProductPage() {
           (v.sizeId ?? product.sizes[0]?.id) === (selectedSize ?? product.sizes[0]?.id),
       ) ?? product.variants[0]
     );
-  }, [product, selectedColor, selectedSize]);
+  }, [product, selectedColor, selectedSize, variantId]);
+
+  const needsDirectVariantSelector = useMemo(() => {
+    if (!product || product.variants.length <= 1) return false;
+    return new Set(product.variants.map(variantSelectionKey)).size < product.variants.length;
+  }, [product]);
 
   const galleryMedia = useMemo(() => {
     if (!product) return [];
@@ -81,8 +122,8 @@ export function ProductPage() {
   if (isError || !product) return <Container className="py-20"><ErrorState onRetry={() => refetch()} /></Container>;
 
   const stock = variant?.stock ?? 0;
-  const colorName = product.colors.find((c) => c.id === selectedColor)?.name ?? '';
-  const sizeLabel = product.sizes.find((s) => s.id === selectedSize)?.label;
+  const colorName = product.colors.find((c) => c.id === (variant?.colorId ?? selectedColor))?.name ?? '';
+  const sizeLabel = product.sizes.find((s) => s.id === (variant?.sizeId ?? selectedSize))?.label;
 
   const handleAdd = async (goCheckout = false) => {
     if (!variant || stock <= 0) return;
@@ -163,29 +204,91 @@ export function ProductPage() {
           <p className="mt-5 text-graphite-soft">{product.shortDescription}</p>
 
           {/* Cores */}
-          <div className="mt-6">
-            <p className="mb-2 text-sm font-medium text-graphite">
-              Cor: <span className="text-graphite-soft">{colorName}</span>
-            </p>
-            <Swatches colors={product.colors} value={selectedColor} onChange={(id) => { setColorId(id); setQty(1); }} />
-          </div>
+          {!needsDirectVariantSelector && (
+            <div className="mt-6">
+              <p className="mb-2 text-sm font-medium text-graphite">
+                Cor: <span className="text-graphite-soft">{colorName}</span>
+              </p>
+              <Swatches
+                colors={product.colors}
+                value={variant?.colorId ?? selectedColor}
+                onChange={(id) => {
+                  setColorId(id);
+                  setVariantId(undefined);
+                  setQty(1);
+                }}
+              />
+            </div>
+          )}
 
           {/* Tamanhos (se houver) */}
-          {product.sizes.length > 1 && (
+          {!needsDirectVariantSelector && product.sizes.length > 1 && (
             <div className="mt-5">
               <p className="mb-2 text-sm font-medium text-graphite">Tamanho</p>
               <div className="flex flex-wrap gap-2">
                 {product.sizes.map((s) => (
                   <button
                     key={s.id}
-                    onClick={() => setSizeId(s.id)}
+                    onClick={() => {
+                      setSizeId(s.id);
+                      setVariantId(undefined);
+                    }}
                     className={`tactile rounded-[var(--radius-md)] border px-4 py-2 text-sm ${
-                      selectedSize === s.id ? 'border-graphite bg-graphite text-cream-light' : 'border-border text-graphite hover:border-graphite'
+                      (variant?.sizeId ?? selectedSize) === s.id
+                        ? 'border-graphite bg-graphite text-cream-light'
+                        : 'border-border text-graphite hover:border-graphite'
                     }`}
                   >
                     {s.label}
                   </button>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {needsDirectVariantSelector && (
+            <div className="mt-6">
+              <p className="mb-2 text-sm font-medium text-graphite">
+                Variação: <span className="text-graphite-soft">{variant ? variantOptionLabel(product, variant) : ''}</span>
+              </p>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {product.variants.map((item) => {
+                  const active = variant?.id === item.id;
+                  const optionColor = product.colors.find((c) => c.id === item.colorId);
+
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      aria-pressed={active}
+                      onClick={() => {
+                        setVariantId(item.id);
+                        setColorId(item.colorId);
+                        setSizeId(item.sizeId);
+                        setQty(1);
+                      }}
+                      className={`tactile flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 text-left text-sm transition-colors ${
+                        active
+                          ? 'border-graphite bg-graphite text-cream-light'
+                          : 'border-border text-graphite hover:border-graphite'
+                      }`}
+                    >
+                      {optionColor && (
+                        <span
+                          className="h-5 w-5 shrink-0 rounded-full ring-1 ring-black/10"
+                          style={{ backgroundColor: optionColor.hex }}
+                          aria-hidden
+                        />
+                      )}
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium">{variantOptionLabel(product, item)}</span>
+                        <span className={`block truncate text-xs ${active ? 'text-cream-light/75' : 'text-graphite-soft'}`}>
+                          {item.stock > 0 ? 'Disponível' : 'Indisponível'}
+                        </span>
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </div>
           )}
