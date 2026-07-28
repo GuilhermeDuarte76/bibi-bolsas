@@ -1,6 +1,9 @@
 import { useMemo, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
+import ReactMarkdown from 'react-markdown';
+import remarkBreaks from 'remark-breaks';
+import remarkGfm from 'remark-gfm';
 import { CaretRight, Handbag, Heart, Minus, Plus, ShieldCheck } from '@phosphor-icons/react';
 import { catalogService, queryKeys } from '@/lib/api';
 import { useCart } from '@/store/cart';
@@ -51,6 +54,56 @@ function variantOptionLabel(product: Product, variant: ProductVariant) {
 
 function variantSelectionKey(variant: ProductVariant) {
   return `${variant.colorId}|${variant.sizeId ?? ''}`;
+}
+
+function ProductDescription({ value }: { value: string }) {
+  const markdown = value.trim() || 'Descrição em breve.';
+
+  return (
+    <div className="rounded-[var(--radius-md)] border border-border bg-cream-lighter/50 px-4 py-4 text-sm leading-relaxed text-graphite-soft">
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm, remarkBreaks]}
+        components={{
+          h1: ({ children }) => <h3 className="mb-3 font-display text-xl text-graphite">{children}</h3>,
+          h2: ({ children }) => <h3 className="mb-3 mt-5 font-display text-lg text-graphite first:mt-0">{children}</h3>,
+          h3: ({ children }) => <h4 className="mb-2 mt-4 text-base font-semibold text-graphite first:mt-0">{children}</h4>,
+          p: ({ children }) => <p className="mb-3 last:mb-0">{children}</p>,
+          ul: ({ children }) => <ul className="mb-3 list-disc space-y-1 pl-5 last:mb-0">{children}</ul>,
+          ol: ({ children }) => <ol className="mb-3 list-decimal space-y-1 pl-5 last:mb-0">{children}</ol>,
+          li: ({ children }) => <li className="pl-1">{children}</li>,
+          strong: ({ children }) => <strong className="font-semibold text-graphite">{children}</strong>,
+          em: ({ children }) => <em className="text-graphite">{children}</em>,
+          a: ({ children, href }) => (
+            <a href={href} target="_blank" rel="noreferrer" className="font-medium text-terracotta hover:underline">
+              {children}
+            </a>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote className="mb-3 border-l-4 border-terracotta/40 bg-surface px-4 py-3 italic text-graphite last:mb-0">
+              {children}
+            </blockquote>
+          ),
+          code: ({ children }) => (
+            <code className="rounded bg-surface px-1.5 py-0.5 font-mono text-[0.85em] text-graphite">{children}</code>
+          ),
+          pre: ({ children }) => (
+            <pre className="mb-3 overflow-x-auto rounded-[var(--radius-md)] bg-graphite p-3 text-xs text-cream-light last:mb-0">
+              {children}
+            </pre>
+          ),
+          table: ({ children }) => (
+            <div className="mb-3 overflow-x-auto rounded-[var(--radius-md)] border border-border bg-surface last:mb-0">
+              <table className="min-w-full divide-y divide-border text-left text-xs">{children}</table>
+            </div>
+          ),
+          th: ({ children }) => <th className="bg-cream-light px-3 py-2 font-semibold text-graphite">{children}</th>,
+          td: ({ children }) => <td className="px-3 py-2 align-top">{children}</td>,
+        }}
+      >
+        {markdown}
+      </ReactMarkdown>
+    </div>
+  );
 }
 
 export function ProductPage() {
@@ -336,7 +389,7 @@ export function ProductPage() {
               items={[
                 {
                   title: 'Descrição',
-                  content: <p>{product.description}</p>,
+                  content: <ProductDescription value={product.description} />,
                 },
                 {
                   title: 'Medidas e materiais',

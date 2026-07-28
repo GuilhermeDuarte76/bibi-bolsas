@@ -73,6 +73,7 @@ interface BackendProductVariantDto {
   material?: string | null;
   price: number;
   promotionalPrice?: number | null;
+  availableQuantity?: number | null;
   isAvailable: boolean;
 }
 
@@ -370,7 +371,7 @@ function mapBackendDetail(dto: BackendProductDetailDto): Product {
       material: variant.material ?? undefined,
       priceCents: promoPriceCents ?? basePriceCents,
       compareAtCents: promoPriceCents ? basePriceCents : undefined,
-      stock: variant.isAvailable ? 99 : 0,
+      stock: Math.max(variant.availableQuantity ?? (variant.isAvailable ? 1 : 0), 0),
     };
   });
 
