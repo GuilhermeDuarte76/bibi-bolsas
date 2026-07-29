@@ -25,7 +25,7 @@ import { StockBadge } from '@/components/product/StockBadge';
 import { ShippingCalculator } from '@/components/product/ShippingCalculator';
 import { ProductCard } from '@/components/product/ProductCard';
 import { reviews as allReviews } from '@/lib/api/mock/account';
-import type { Product, ProductVariant } from '@/types';
+import type { ProductVariant } from '@/types';
 
 function normalizeVariantLabel(value?: string) {
   return (value ?? '')
@@ -33,23 +33,6 @@ function normalizeVariantLabel(value?: string) {
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase();
-}
-
-function variantOptionLabel(product: Product, variant: ProductVariant) {
-  const color = product.colors.find((c) => c.id === variant.colorId);
-  const size = product.sizes.find((s) => s.id === variant.sizeId);
-  const parts = [variant.name, color?.name, size?.label === 'Unico' ? undefined : size?.label, variant.material]
-    .map((part) => part?.trim())
-    .filter((part): part is string => Boolean(part));
-  const seen = new Set<string>();
-  const uniqueParts = parts.filter((part) => {
-    const key = normalizeVariantLabel(part);
-    if (!key || seen.has(key)) return false;
-    seen.add(key);
-    return true;
-  });
-
-  return uniqueParts.join(' / ') || variant.sku;
 }
 
 function variantSelectionKey(variant: ProductVariant) {
@@ -329,17 +312,19 @@ export function ProductPage() {
           {needsDirectVariantSelector && (
             <div className="mt-6">
               <p className="mb-2 text-sm font-medium text-graphite">
-                Variação: <span className="text-graphite-soft">{variant ? variantOptionLabel(product, variant) : ''}</span>
+                Cor: <span className="text-graphite-soft">{colorName}</span>
               </p>
               <div className="grid gap-2 sm:grid-cols-2">
                 {product.variants.map((item) => {
                   const active = variant?.id === item.id;
                   const optionColor = product.colors.find((c) => c.id === item.colorId);
+                  const optionLabel = optionColor?.name ?? item.name ?? 'Cor';
 
                   return (
                     <button
                       key={item.id}
                       type="button"
+                      aria-label={optionLabel}
                       aria-pressed={active}
                       onClick={() => {
                         setVariantId(item.id);
@@ -360,12 +345,7 @@ export function ProductPage() {
                           aria-hidden
                         />
                       )}
-                      <span className="min-w-0 flex-1">
-                        <span className="block truncate font-medium">{variantOptionLabel(product, item)}</span>
-                        <span className={`block truncate text-xs ${active ? 'text-cream-light/75' : 'text-graphite-soft'}`}>
-                          {item.stock > 0 ? 'Disponível' : 'Indisponível'}
-                        </span>
-                      </span>
+                      <span className="min-w-0 flex-1 truncate font-medium">{optionLabel}</span>
                     </button>
                   );
                 })}
