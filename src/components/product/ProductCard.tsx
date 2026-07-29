@@ -1,6 +1,6 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router';
-import type { ProductSummary } from '@/types';
+import type { ProductSummary, ProductVariant } from '@/types';
 import { Badge } from '@/components/ui/Badge';
 import { Stars } from '@/components/ui/Stars';
 import { Swatches } from './Swatches';
@@ -14,7 +14,25 @@ import { cn } from '@/lib/utils';
  */
 export function ProductCard({ product }: { product: ProductSummary }) {
   const [hover, setHover] = useState(false);
+  const [selectedVariantId, setSelectedVariantId] = useState<string>();
   const primaryBadge = product.badges[0];
+  const previewVariants = useMemo(() => {
+    if (product.variants.length <= 1) return [];
+
+    const distinctSkus = new Set(product.variants.map((variant) => variant.sku.trim().toLowerCase()).filter(Boolean));
+    return distinctSkus.size > 1 ? product.variants : [];
+  }, [product.variants]);
+  const selectedVariant = previewVariants.find((variant) => variant.id === selectedVariantId) ?? previewVariants[0];
+  const variantMedia = selectedVariant
+    ? product.media.filter((media) => media.productVariantId === selectedVariant.id)
+    : [];
+  const activeImage = variantMedia[0]?.url ?? product.image;
+  const activeHoverImage =
+    variantMedia.find((media) => media.url !== activeImage)?.url ??
+    (selectedVariant ? undefined : product.hoverImage);
+  const activeInStock = selectedVariant ? selectedVariant.stock > 0 : product.inStock;
+  const activePriceCents = selectedVariant?.priceCents ?? product.priceFromCents;
+  const activeCompareAtCents = selectedVariant?.compareAtCents ?? product.compareAtFromCents;
 
   return (
     <article
@@ -28,17 +46,17 @@ export function ProductCard({ product }: { product: ProductSummary }) {
       >
         <div className="aspect-[4/5] w-full">
           <img
-            src={product.image}
+            src={activeImage}
             alt={product.alt}
             loading="lazy"
             className={cn(
               'h-full w-full object-cover transition-opacity duration-500',
-              hover && product.hoverImage ? 'opacity-0' : 'opacity-100',
+              hover && activeHoverImage ? 'opacity-0' : 'opacity-100',
             )}
           />
-          {product.hoverImage && (
+          {activeHoverImage && (
             <img
-              src={product.hoverImage}
+              src={activeHoverImage}
               alt=""
               aria-hidden
               loading="lazy"
@@ -51,7 +69,7 @@ export function ProductCard({ product }: { product: ProductSummary }) {
         </div>
 
         {primaryBadge && <Badge kind={primaryBadge} className="absolute left-3 top-3" />}
-        {!product.inStock && (
+        {!activeInStock && (
           <span className="absolute inset-0 grid place-items-center bg-cream-light/70 font-display text-lg text-graphite">
             Esgotado
           </span>
@@ -67,15 +85,74 @@ export function ProductCard({ product }: { product: ProductSummary }) {
         </h3>
         <Stars rating={product.rating} count={product.reviewCount} size={13} />
         <PriceBlock
-          priceCents={product.priceFromCents}
-          compareAtCents={product.compareAtFromCents}
+          priceCents={activePriceCents}
+          compareAtCents={activeCompareAtCents}
           size="sm"
           className="mt-0.5"
         />
         <div className="mt-2">
-          <Swatches colors={product.colors} size="sm" max={5} />
+          {previewVariants.length > 0 ? (
+            <VariantPreviewSwatches
+              product={product}
+              variants={previewVariants}
+              value={selectedVariant?.id}
+              onChange={(variant) => {
+                setSelectedVariantId(variant.id);
+                setHover(false);
+              }}
+            />
+          ) : (
+            <Swatches colors={product.colors} size="sm" max={5} />
+          )}
         </div>
       </div>
     </article>
+  );
+}
+
+function VariantPreviewSwatches({
+  product,
+  variants,
+  value,
+  onChange,
+}: {
+  product: ProductSummary;
+  variants: ProductVariant[];
+  value?: string;
+  onChange: (variant: ProductVariant) => void;
+}) {
+  const shown = variants.slice(0, 5);
+  const rest = variants.length - shown.length;
+
+  return (
+    <div className="flex items-center gap-1.5">
+      {shown.map((variant) => {
+        const color = product.colors.find((item) => item.id === variant.colorId);
+        if (!color) return null;
+
+        const active = value === variant.id;
+        const light = color.hex.toLowerCase() === '#e3d4c2' || color.hex.toLowerCase() === '#c2b1a8';
+
+        return (
+          <button
+            key={variant.id}
+            type="button"
+            aria-label={color.name}
+            aria-pressed={active}
+            title={color.name}
+            onClick={() => onChange(variant)}
+            className={cn(
+              'tactile grid h-4 w-4 place-items-center rounded-full',
+              active ? 'ring-2 ring-graphite ring-offset-2' : 'ring-1 ring-black/10',
+              variant.stock <= 0 && 'opacity-45',
+            )}
+            style={{ backgroundColor: color.hex }}
+          >
+            {active && <span className={cn('h-1.5 w-1.5 rounded-full', light ? 'bg-graphite' : 'bg-white')} />}
+          </button>
+        );
+      })}
+      {rest > 0 && <span className="text-xs text-graphite-soft">+{rest}</span>}
+    </div>
   );
 }

@@ -48,6 +48,8 @@ interface BackendProductListDto {
   mainImageUrl?: string | null;
   priceFrom?: number | null;
   promotionalPriceFrom?: number | null;
+  images?: BackendProductImageDto[];
+  variants?: BackendProductVariantDto[];
   isAvailable: boolean;
   isFeatured: boolean;
   isNewArrival: boolean;
@@ -136,6 +138,8 @@ function toSummary(p: Product): ProductSummary {
     compareAtFromCents: p.compareAtFromCents,
     badges: p.badges,
     colors: p.colors,
+    variants: p.variants,
+    media: p.media,
     rating: p.rating,
     reviewCount: p.reviewCount,
     image: p.media[0]?.url ?? '',
@@ -219,9 +223,13 @@ function mapBackendListProduct(
   category?: string,
   index = 0,
 ): ProductSummary {
+  const backendVariants = dto.variants ?? [];
+  const variants = backendVariants.map((variant) => mapBackendVariant(variant, backendVariants));
+  const media = (dto.images ?? []).map((image) => mapBackendImage(image, dto.name));
   const basePriceCents = toCents(dto.priceFrom) ?? 0;
   const promoPriceCents = toCents(dto.promotionalPriceFrom);
   const priceFromCents = promoPriceCents ?? basePriceCents;
+  const image = dto.mainImageUrl || media[0]?.url || fallbackImage(category || dto.name, index);
 
   return {
     id: String(dto.id),
@@ -231,12 +239,15 @@ function mapBackendListProduct(
     priceFromCents,
     compareAtFromCents: promoPriceCents ? basePriceCents : undefined,
     badges: badgesFromProduct(dto),
-    colors: [],
+    colors: uniqueById(backendVariants.map((variant) => mapVariantColor(variant, backendVariants))),
+    variants,
+    media,
     rating: 0,
     reviewCount: 0,
-    image: dto.mainImageUrl || fallbackImage(category || dto.name, index),
+    image,
+    hoverImage: media.find((item) => item.url !== image)?.url,
     alt: dto.name,
-    inStock: dto.isAvailable,
+    inStock: variants.length ? variants.some((variant) => variant.stock > 0) : dto.isAvailable,
   };
 }
 
@@ -255,8 +266,24 @@ function mapPagedProducts(
 
 function buildFacetsFromSummaries(items: ProductSummary[]): CatalogFacets {
   const prices = items.map((item) => item.priceFromCents).filter((price) => price > 0);
+  const colorMap = new Map<string, { color: ProductColor; count: number }>();
+
+  items.forEach((item) => {
+    item.colors.forEach((color) => {
+      const current = colorMap.get(color.id);
+      colorMap.set(color.id, {
+        color,
+        count: (current?.count ?? 0) + 1,
+      });
+    });
+  });
+
   return {
-    colors: [],
+    colors: [...colorMap.values()].map(({ color, count }) => ({
+      value: color.id,
+      label: color.name,
+      count,
+    })),
     sizes: [],
     materials: [],
     occasions: [],
@@ -346,18 +373,44 @@ function uniqueById<T extends { id: string }>(items: T[]): T[] {
   return [...new Map(items.map((item) => [item.id, item])).values()];
 }
 
+function mapBackendImage(image: BackendProductImageDto, productName: string): ProductMedia {
+  return {
+    id: String(image.id),
+    productVariantId: image.productVariantId ? String(image.productVariantId) : undefined,
+    type: 'image',
+    url: image.publicUrl,
+    alt: image.altText || productName,
+  };
+}
+
+function mapBackendVariant(
+  variant: BackendProductVariantDto,
+  variants: BackendProductVariantDto[],
+): ProductVariant {
+  const color = mapVariantColor(variant, variants);
+  const size = mapVariantSize(variant);
+  const basePriceCents = toCents(variant.price) ?? 0;
+  const promoPriceCents = toCents(variant.promotionalPrice);
+
+  return {
+    id: String(variant.id),
+    sku: variant.sku,
+    name: variant.name,
+    colorId: color.id,
+    sizeId: size.id,
+    material: variant.material ?? undefined,
+    priceCents: promoPriceCents ?? basePriceCents,
+    compareAtCents: promoPriceCents ? basePriceCents : undefined,
+    stock: Math.max(variant.availableQuantity ?? (variant.isAvailable ? 1 : 0), 0),
+  };
+}
+
 function mapBackendDetail(dto: BackendProductDetailDto): Product {
   const categorySlug = asCategorySlug(dto.categories[0]?.slug ?? inferBaseCategory(dto.name));
   const colors = uniqueById(dto.variants.map((variant) => mapVariantColor(variant, dto.variants)));
   const sizes = uniqueById(dto.variants.map(mapVariantSize));
   const media: ProductMedia[] = dto.images.length
-    ? dto.images.map((image) => ({
-        id: String(image.id),
-        productVariantId: image.productVariantId ? String(image.productVariantId) : undefined,
-        type: 'image',
-        url: image.publicUrl,
-        alt: image.altText || dto.name,
-      }))
+    ? dto.images.map((image) => mapBackendImage(image, dto.name))
     : [
         {
           id: `${dto.id}-fallback`,
@@ -367,24 +420,7 @@ function mapBackendDetail(dto: BackendProductDetailDto): Product {
         },
       ];
 
-  const variants: ProductVariant[] = dto.variants.map((variant) => {
-    const color = mapVariantColor(variant, dto.variants);
-    const size = mapVariantSize(variant);
-    const basePriceCents = toCents(variant.price) ?? 0;
-    const promoPriceCents = toCents(variant.promotionalPrice);
-
-    return {
-      id: String(variant.id),
-      sku: variant.sku,
-      name: variant.name,
-      colorId: color.id,
-      sizeId: size.id,
-      material: variant.material ?? undefined,
-      priceCents: promoPriceCents ?? basePriceCents,
-      compareAtCents: promoPriceCents ? basePriceCents : undefined,
-      stock: Math.max(variant.availableQuantity ?? (variant.isAvailable ? 1 : 0), 0),
-    };
-  });
+  const variants: ProductVariant[] = dto.variants.map((variant) => mapBackendVariant(variant, dto.variants));
 
   const priceFromCents = variants.length
     ? Math.min(...variants.map((variant) => variant.priceCents))

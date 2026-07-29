@@ -368,6 +368,8 @@ export interface ProductSummary {
   compareAtFromCents?: number;
   badges: ProductBadge[];
   colors: ProductColor[];
+  variants: ProductVariant[];
+  media: ProductMedia[];
   rating: number;
   reviewCount: number;
   /** Imagem principal + imagem de hover. */
