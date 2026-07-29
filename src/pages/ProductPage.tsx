@@ -129,8 +129,13 @@ export function ProductPage() {
   const [variantId, setVariantId] = useState<string>();
   const [qty, setQty] = useState(1);
 
-  const selectedColor = colorId ?? product?.colors[0]?.id;
-  const selectedSize = sizeId ?? product?.sizes[0]?.id;
+  const defaultVariant = useMemo(() => {
+    if (!product) return undefined;
+    return product.variants.find((item) => item.stock > 0) ?? product.variants[0];
+  }, [product]);
+
+  const selectedColor = colorId ?? defaultVariant?.colorId ?? product?.colors[0]?.id;
+  const selectedSize = sizeId ?? defaultVariant?.sizeId ?? product?.sizes[0]?.id;
 
   const variant = useMemo(() => {
     if (!product) return undefined;
@@ -139,14 +144,27 @@ export function ProductPage() {
       if (directVariant) return directVariant;
     }
 
-    return (
-      product.variants.find(
-        (v) =>
-          v.colorId === selectedColor &&
-          (v.sizeId ?? product.sizes[0]?.id) === (selectedSize ?? product.sizes[0]?.id),
-      ) ?? product.variants[0]
+    const exactVariant = product.variants.find(
+      (v) =>
+        v.colorId === selectedColor &&
+        (v.sizeId ?? defaultVariant?.sizeId) === (selectedSize ?? defaultVariant?.sizeId),
     );
-  }, [product, selectedColor, selectedSize, variantId]);
+    if (exactVariant) return exactVariant;
+
+    if (colorId) {
+      const sameColorVariant = product.variants.find((v) => v.colorId === selectedColor);
+      if (sameColorVariant) return sameColorVariant;
+    }
+
+    if (sizeId) {
+      const sameSizeVariant = product.variants.find(
+        (v) => (v.sizeId ?? defaultVariant?.sizeId) === (selectedSize ?? defaultVariant?.sizeId),
+      );
+      if (sameSizeVariant) return sameSizeVariant;
+    }
+
+    return defaultVariant;
+  }, [product, selectedColor, selectedSize, variantId, defaultVariant, colorId, sizeId]);
 
   const needsDirectVariantSelector = useMemo(() => {
     if (!product || product.variants.length <= 1) return false;

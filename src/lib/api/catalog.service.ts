@@ -323,10 +323,21 @@ function mapVariantColor(variant: BackendProductVariantDto, variants: BackendPro
   };
 }
 
+function normalizeSizeKey(label: string): string {
+  const canonicalLabel = label
+    .trim()
+    .replace(/\b(\d+(?:[,.]\d+)?)\s*(kgs?|quilos?|kilos?)\b/gi, '$1kg')
+    .replace(/\b(\d+(?:[,.]\d+)?)\s*(centimetros?|centimeters?|cm)\b/gi, '$1cm')
+    .replace(/\b(\d+(?:[,.]\d+)?)\s*(milimetros?|millimeters?|mm)\b/gi, '$1mm')
+    .replace(/\b(\d+(?:[,.]\d+)?)\s*(litros?|liters?|l)\b/gi, '$1l');
+
+  return normalizeToken(canonicalLabel);
+}
+
 function mapVariantSize(variant: BackendProductVariantDto): ProductSize {
   const label = variant.size?.trim() || 'Unico';
   return {
-    id: `tam-${normalizeToken(label) || 'unico'}`,
+    id: `tam-${normalizeSizeKey(label) || 'unico'}`,
     label,
   };
 }
