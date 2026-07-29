@@ -56,6 +56,10 @@ function variantSelectionKey(variant: ProductVariant) {
   return `${variant.colorId}|${variant.sizeId ?? ''}`;
 }
 
+function variantSkuKey(variant: ProductVariant) {
+  return normalizeVariantLabel(variant.sku);
+}
+
 function ProductDescription({ value }: { value: string }) {
   const markdown = value.trim() || 'Descrição em breve.';
 
@@ -168,7 +172,12 @@ export function ProductPage() {
 
   const needsDirectVariantSelector = useMemo(() => {
     if (!product || product.variants.length <= 1) return false;
-    return new Set(product.variants.map(variantSelectionKey)).size < product.variants.length;
+
+    const skuCount = new Set(product.variants.map(variantSkuKey).filter(Boolean)).size;
+    const hasMultipleSkus = skuCount > 1;
+    const hasAmbiguousColorSize = new Set(product.variants.map(variantSelectionKey)).size < product.variants.length;
+
+    return hasMultipleSkus || hasAmbiguousColorSize;
   }, [product]);
 
   const galleryMedia = useMemo(() => {
