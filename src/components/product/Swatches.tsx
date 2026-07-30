@@ -9,12 +9,14 @@ export function Swatches({
   onChange,
   size = 'md',
   max,
+  showTitle = true,
 }: {
   colors: ProductColor[];
   value?: string;
   onChange?: (id: string) => void;
   size?: 'sm' | 'md';
   max?: number;
+  showTitle?: boolean;
 }) {
   const dim = size === 'sm' ? 'h-4 w-4' : 'h-7 w-7';
   const shown = max ? colors.slice(0, max) : colors;
@@ -34,7 +36,7 @@ export function Swatches({
             onClick={() => onChange!(c.id)}
             aria-label={c.name}
             aria-pressed={active}
-            title={c.name}
+            title={showTitle ? c.name : undefined}
             className={cn('tactile relative grid place-items-center rounded-full', dim, ring)}
             style={{ backgroundColor: c.hex }}
           >
@@ -43,7 +45,7 @@ export function Swatches({
         ) : (
           <span
             key={c.id}
-            title={c.name}
+            title={showTitle ? c.name : undefined}
             className={cn('rounded-full ring-1 ring-black/10', dim)}
             style={{ backgroundColor: c.hex }}
           />

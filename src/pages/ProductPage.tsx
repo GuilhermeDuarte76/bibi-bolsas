@@ -269,12 +269,10 @@ export function ProductPage() {
           {/* Cores */}
           {!needsDirectVariantSelector && (
             <div className="mt-6">
-              <p className="mb-2 text-sm font-medium text-graphite">
-                Cor: <span className="text-graphite-soft">{colorName}</span>
-              </p>
               <Swatches
                 colors={product.colors}
                 value={variant?.colorId ?? selectedColor}
+                showTitle={false}
                 onChange={(id) => {
                   setColorId(id);
                   setVariantId(undefined);
@@ -311,10 +309,7 @@ export function ProductPage() {
 
           {needsDirectVariantSelector && (
             <div className="mt-6">
-              <p className="mb-2 text-sm font-medium text-graphite">
-                Cor: <span className="text-graphite-soft">{colorName}</span>
-              </p>
-              <div className="grid gap-2 sm:grid-cols-2">
+              <div className="flex flex-wrap items-center gap-2">
                 {product.variants.map((item) => {
                   const active = variant?.id === item.id;
                   const optionColor = product.colors.find((c) => c.id === item.colorId);
@@ -332,20 +327,14 @@ export function ProductPage() {
                         setSizeId(item.sizeId);
                         setQty(1);
                       }}
-                      className={`tactile flex items-center gap-3 rounded-[var(--radius-md)] border px-3 py-2.5 text-left text-sm transition-colors ${
+                      className={`tactile h-7 w-7 rounded-full transition ${
                         active
-                          ? 'border-graphite bg-graphite text-cream-light'
-                          : 'border-border text-graphite hover:border-graphite'
+                          ? 'ring-2 ring-graphite ring-offset-2'
+                          : 'ring-1 ring-black/10 hover:ring-graphite/70'
                       }`}
+                      style={{ backgroundColor: optionColor?.hex ?? '#a5603f' }}
                     >
-                      {optionColor && (
-                        <span
-                          className="h-5 w-5 shrink-0 rounded-full ring-1 ring-black/10"
-                          style={{ backgroundColor: optionColor.hex }}
-                          aria-hidden
-                        />
-                      )}
-                      <span className="min-w-0 flex-1 truncate font-medium">{optionLabel}</span>
+                      <span className="sr-only">{optionLabel}</span>
                     </button>
                   );
                 })}
