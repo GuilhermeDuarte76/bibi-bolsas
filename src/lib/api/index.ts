@@ -1,6 +1,6 @@
 export { catalogService } from './catalog.service';
 export { cartService } from './cart.service';
-export { accountService } from './account.service';
+export { accountService, type NotificationPreferences } from './account.service';
 export { authService, type Session } from './auth.service';
 export { checkoutService, type CheckoutInput, type CheckoutResult } from './checkout.service';
 export { adminService } from './admin.service';
@@ -14,6 +14,7 @@ export const queryKeys = {
   product: (slug: string) => ['product', slug] as const,
   featured: ['featured'] as const,
   related: (slug: string) => ['related', slug] as const,
+  productReviews: (productId: string) => ['product-reviews', productId] as const,
   searchSuggest: (term: string) => ['search-suggest', term] as const,
   session: ['session'] as const,
   customer: ['customer'] as const,
@@ -21,6 +22,7 @@ export const queryKeys = {
   orders: ['orders'] as const,
   order: (id: string) => ['order', id] as const,
   pendingReviews: ['pending-reviews'] as const,
+  notificationPreferences: ['notification-preferences'] as const,
   admin: {
     dashboard: ['admin', 'dashboard'] as const,
     salesReport: (filters?: unknown) => ['admin', 'reports', 'sales', filters ?? {}] as const,

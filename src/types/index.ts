@@ -106,10 +106,14 @@ export interface Product {
   /** Preco "a partir de" em centavos (menor preco entre variacoes). */
   priceFromCents: number;
   compareAtFromCents?: number;
-  /** Parcelamento maximo sem juros (apenas exibicao; recalc no backend). */
-  installmentsMax: number;
-  /** Desconto Pix em pontos percentuais (ex.: 5 = 5%). */
-  pixDiscountPct: number;
+  /**
+   * @deprecated As condicoes de pagamento nao vem do produto — o backend nao
+   * as expoe. A vitrine usa `STORE.payment`, que so anuncia o que o checkout
+   * realmente pratica. Campos mantidos porque o mock ainda os preenche.
+   */
+  installmentsMax?: number;
+  /** @deprecated ver `installmentsMax`. */
+  pixDiscountPct?: number;
   rating: number;
   reviewCount: number;
   colors: ProductColor[];
@@ -383,24 +387,34 @@ export interface ProductSummary {
 // Catalogo: filtros, ordenacao e paginacao
 // ----------------------------------------------------------------------------
 
-export type SortOption =
-  | 'destaque'
-  | 'novidade'
-  | 'menor-preco'
-  | 'maior-preco'
-  | 'mais-vendidos';
+/**
+ * Ordenacoes que o backend realmente implementa.
+ * `destaque` e a ordem padrao (nenhum parametro enviado).
+ * Nao existe ordenacao por vendas: o backend nao expoe esse dado.
+ */
+export type SortOption = 'destaque' | 'novidade' | 'menor-preco' | 'maior-preco';
 
+/**
+ * Filtros do catalogo.
+ *
+ * Cor, tamanho e material sao de valor unico porque `GET /api/produtos` aceita
+ * um valor por campo (`color`, `size`, `material`). Multi-selecao exigiria
+ * suporte a lista no backend — esta na lista de pendencias.
+ *
+ * Os valores enviados sao os rotulos crus do catalogo ("Terracota", "Couro"),
+ * nao ids internos: e assim que o backend compara.
+ */
 export interface CatalogFilters {
   category?: CategorySlug;
   search?: string;
   minPriceCents?: number;
   maxPriceCents?: number;
-  colors?: string[];
-  sizes?: string[];
-  materials?: string[];
-  occasions?: Occasion[];
+  color?: string;
+  size?: string;
+  material?: string;
   onlyPromo?: boolean;
   onlyInStock?: boolean;
+  onlyFeatured?: boolean;
   sort?: SortOption;
   page?: number;
   pageSize?: number;
@@ -421,10 +435,10 @@ export interface FacetOption {
 }
 
 export interface CatalogFacets {
-  colors: FacetOption[];
+  /** `value` e o texto enviado a API; `label` e o texto mostrado na tela. */
+  colors: (FacetOption & { hex?: string })[];
   sizes: FacetOption[];
   materials: FacetOption[];
-  occasions: FacetOption[];
   priceRange: { minCents: number; maxCents: number };
 }
 
@@ -447,6 +461,12 @@ export interface CartItem {
   compareAtCents?: number;
   quantity: number;
   maxStock: number;
+  /** SKU saiu de linha ou ficou sem estoque desde que entrou na sacola. */
+  isAvailable?: boolean;
+  /** O preco mudou depois que o item foi adicionado. */
+  hasPriceChanged?: boolean;
+  /** Avisos do backend sobre esta linha (estoque, preco, disponibilidade). */
+  messages?: string[];
 }
 
 export interface AppliedCoupon {
@@ -481,6 +501,14 @@ export interface Cart {
   discountCents: number;
   shippingCents: number;
   totalCents: number;
+  /** Ha item indisponivel — o checkout vai recusar enquanto nao for resolvido. */
+  hasUnavailableItems?: boolean;
+  /** Algum preco mudou desde que o item entrou na sacola. */
+  hasPriceChanges?: boolean;
+  /** Avisos gerais do backend sobre a sacola. */
+  messages?: string[];
+  /** Quando a sacola expira e o estoque volta para a vitrine. */
+  expiresAt?: string;
 }
 
 // ----------------------------------------------------------------------------

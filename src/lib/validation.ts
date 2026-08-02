@@ -45,6 +45,46 @@ export const registerSchema = z
   });
 export type RegisterFormValues = z.infer<typeof registerSchema>;
 
+export const profileSchema = z.object({
+  name: z.string().min(3, 'Informe seu nome completo'),
+  phone: z.string().min(14, 'Telefone incompleto'),
+  document: z.string().min(14, 'CPF incompleto'),
+});
+export type ProfileFormValues = z.infer<typeof profileSchema>;
+
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, 'Informe a senha atual'),
+    newPassword: z.string().min(8, 'Use ao menos 8 caracteres'),
+    confirm: z.string(),
+  })
+  .refine((values) => values.newPassword === values.confirm, {
+    message: 'As senhas não conferem',
+    path: ['confirm'],
+  });
+export type ChangePasswordFormValues = z.infer<typeof changePasswordSchema>;
+
+export const emailChangeSchema = z.object({
+  newEmail: z.string().email('E-mail inválido'),
+});
+export type EmailChangeFormValues = z.infer<typeof emailChangeSchema>;
+
+export const forgotPasswordSchema = z.object({
+  email: z.string().email('E-mail inválido'),
+});
+export type ForgotPasswordFormValues = z.infer<typeof forgotPasswordSchema>;
+
+export const resetPasswordSchema = z
+  .object({
+    password: z.string().min(8, 'Use ao menos 8 caracteres'),
+    confirm: z.string(),
+  })
+  .refine((values) => values.password === values.confirm, {
+    message: 'As senhas não conferem',
+    path: ['confirm'],
+  });
+export type ResetPasswordFormValues = z.infer<typeof resetPasswordSchema>;
+
 export const reviewSchema = z.object({
   rating: z.number().min(1, 'Dê uma nota').max(5),
   title: z.string().min(3, 'Escreva um título'),

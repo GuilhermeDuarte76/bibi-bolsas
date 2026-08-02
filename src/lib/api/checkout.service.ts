@@ -37,6 +37,25 @@ interface BackendCheckoutShippingOptionDto {
   rawReference?: string | null;
 }
 
+interface BackendCheckoutValidationDto {
+  isValid: boolean;
+  cartId: number;
+  customerIssues: string[];
+  addressIssues: string[];
+  stockIssues: string[];
+  priceIssues: string[];
+  couponIssues: string[];
+  subtotal: number;
+}
+
+/** Pendencias agrupadas por onde a pessoa resolve cada uma. */
+export interface CheckoutValidation {
+  isValid: boolean;
+  subtotalCents: number;
+  groups: { step: number; title: string; issues: string[] }[];
+  allIssues: string[];
+}
+
 interface BackendCheckoutCouponValidationResultDto {
   isValid: boolean;
   message: string;
@@ -214,6 +233,47 @@ function mapCheckoutResponse(input: CheckoutInput, response: BackendCheckoutResp
  * validado. O front nunca confirma pagamento pelo retorno visual.
  */
 export const checkoutService = {
+  /**
+   * Pre-valida a compra antes de criar o pedido.
+   *
+   * O backend confere perfil, endereco, estoque, preco e cupom de uma vez.
+   * Chamar isso antes de `createOrder` evita o pior cenario do checkout: a
+   * pessoa apertar "confirmar e pagar" e receber um erro seco depois de ter
+   * preenchido tudo.
+   *
+   * As pendencias voltam separadas por origem — usamos isso para mandar a
+   * cliente direto ao passo que resolve cada uma.
+   */
+  async validateCheckout(input: {
+    cartId: number;
+    addressId?: number;
+    couponCode?: string;
+  }): Promise<CheckoutValidation> {
+    const dto = await http<BackendCheckoutValidationDto>('/checkout/validate', {
+      method: 'POST',
+      body: {
+        cartId: input.cartId,
+        addressId: input.addressId,
+        couponCode: input.couponCode,
+      },
+    });
+
+    const groups = [
+      { step: 0, title: 'Seus dados', issues: dto.customerIssues ?? [] },
+      { step: 1, title: 'Endereço de entrega', issues: dto.addressIssues ?? [] },
+      { step: 2, title: 'Disponibilidade', issues: dto.stockIssues ?? [] },
+      { step: 2, title: 'Preços', issues: dto.priceIssues ?? [] },
+      { step: 3, title: 'Cupom', issues: dto.couponIssues ?? [] },
+    ].filter((group) => group.issues.length > 0);
+
+    return {
+      isValid: dto.isValid,
+      subtotalCents: Math.round(Number(dto.subtotal) * 100),
+      groups,
+      allIssues: groups.flatMap((group) => group.issues),
+    };
+  },
+
   async getShippingOptions(input: { cartId: number; addressId: number }): Promise<ShippingOption[]> {
     if (USE_MOCK) return delay([]);
     return (

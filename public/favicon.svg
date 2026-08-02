@@ -1,16 +1,21 @@
-<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
-  <rect width="64" height="64" rx="14" fill="#A5603F" />
-  <path
-    d="M20 32c0-5 3.4-8.5 7.5-8.5 3.6 0 5.6 2.4 4.5 6.2-1.1 3.8-4.3 6.6-4.3 6.6s-3.2 2.8-4.3 6.6c-1.1 3.8.9 6.2 4.5 6.2"
+<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="297 1119 1050 1050" role="img">
+  <title>Bibi Bolsas</title>
+  <!--
+    Símbolo da marca isolado do lockup (public/brand/bibi-bolsas-logo-reveal.svg).
+    Traço engrossado de 15 para 70: na aba do navegador o desenho é renderizado
+    a 16px e o traço original desapareceria.
+  -->
+  <rect x="297" y="1119" width="1050" height="1050" rx="230" fill="#A5603F" />
+  <g
     fill="none"
-    stroke="#E9DCCF"
-    stroke-width="3.2"
+    stroke="#F6F0E9"
+    stroke-width="70"
     stroke-linecap="round"
-    transform="rotate(90 32 32)"
-  />
-  <path
-    d="M32 24c2.6-4.2 6.4-5.6 9.8-3.6 3.4 2 4 6.4 1.4 10.6-2.6 4.2-11.2 12.6-11.2 12.6S23.4 35.2 20.8 31c-2.6-4.2-2-8.6 1.4-10.6 3.4-2 7.2-.6 9.8 3.6Z"
-    fill="#E9DCCF"
-    opacity="0.95"
-  />
+    stroke-linejoin="round"
+  >
+    <path d="M628 1535 C602 1625 577 1778 568 1928 C566 1966 591 1992 633 2004 C665 2013 690 2004 698 1982 C709 1868 707 1750 682 1644 C674 1612 661 1582 644 1543 C638 1536 633 1532 628 1535 Z" />
+    <path d="M644 1543 C754 1527 855 1517 956 1520 C987 1521 1007 1540 1013 1570 L1072 1944 C1076 1964 1068 1974 1050 1978 L718 2050 C703 2053 694 2044 698 1982" />
+    <path d="M668 1520 C667 1370 712 1266 790 1247 C870 1227 918 1321 916 1466 C915 1531 921 1584 936 1607" />
+    <path d="M706 1531 C705 1377 752 1262 832 1238 C914 1213 968 1312 966 1469 C965 1541 975 1603 995 1627" />
+  </g>
 </svg>

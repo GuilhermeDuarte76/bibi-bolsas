@@ -6,6 +6,7 @@ import { checkoutService } from '@/lib/api';
 import { Container } from '@/components/ui/Layout';
 import { Button, ButtonLink } from '@/components/ui/Button';
 import { toast } from '@/components/ui/Toast';
+import { analytics } from '@/lib/analytics';
 import { formatPrice } from '@/lib/utils';
 
 function useResult(): CheckoutResult | null {
@@ -15,6 +16,13 @@ function useResult(): CheckoutResult | null {
 
 export function CheckoutSuccessPage() {
   const result = useResult();
+
+  // So a tela de pagamento aprovado pode registrar receita. Criar um pedido
+  // Pix ainda pendente nao e venda e nao pode entrar no ROAS dos anuncios.
+  useEffect(() => {
+    if (result?.order.status === 'paid') analytics.purchase(result.order);
+  }, [result]);
+
   return (
     <Container className="py-16">
       <div className="mx-auto flex max-w-lg flex-col items-center text-center">
@@ -56,16 +64,33 @@ export function CheckoutPendingPage() {
   const result = useResult();
   const [status, setStatus] = useState<'pending' | 'paid'>('pending');
 
-  // Polling simulado do status de pagamento (no real, webhook confirma).
+  // O webhook confirma no backend; o front apenas consulta enquanto esta tela
+  // estiver aberta. A conversao nasce quando o backend responder `paid`.
   useEffect(() => {
     if (!result) return;
     let active = true;
+    let timer: number | undefined;
+
     const poll = async () => {
-      const { status: s } = await checkoutService.getPaymentStatus(result.order.id);
-      if (active && s === 'paid') setStatus('paid');
+      try {
+        const { status: nextStatus } = await checkoutService.getPaymentStatus(result.order.id);
+        if (!active) return;
+        if (nextStatus === 'paid') {
+          analytics.purchase({ ...result.order, status: 'paid' });
+          setStatus('paid');
+          if (timer !== undefined) window.clearInterval(timer);
+        }
+      } catch {
+        // Falha temporaria: o proximo intervalo tenta novamente sem assustar a cliente.
+      }
     };
-    const t = setTimeout(poll, 4000);
-    return () => { active = false; clearTimeout(t); };
+
+    void poll();
+    timer = window.setInterval(() => void poll(), 4000);
+    return () => {
+      active = false;
+      if (timer !== undefined) window.clearInterval(timer);
+    };
   }, [result]);
 
   const copyPix = () => {

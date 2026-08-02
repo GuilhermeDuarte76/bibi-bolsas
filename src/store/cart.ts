@@ -36,7 +36,20 @@ interface CartState {
   shippingZip?: string;
   syncing: boolean;
 
+  /*
+   * Avisos vindos do backend. Nao sao persistidos: valem para o estado atual
+   * do estoque e precisam ser reconferidos a cada abertura da sacola.
+   */
+  hasUnavailableItems: boolean;
+  hasPriceChanges: boolean;
+  messages: string[];
+  expiresAt?: string;
+  /** true quando ja rodou uma revalidacao nesta visita. */
+  validated: boolean;
+
   sync: () => Promise<void>;
+  /** Reconfere preco, estoque e disponibilidade em POST /api/carrinho/validar. */
+  validate: () => Promise<void>;
   addItem: (input: AddItemInput) => Promise<void>;
   removeItem: (lineId: string) => Promise<void>;
   setQuantity: (lineId: string, quantity: number) => Promise<void>;
@@ -126,6 +139,10 @@ function applyServerCart(
     coupon: undefined,
     shipping: undefined,
     shippingZip: undefined,
+    hasUnavailableItems: cart.hasUnavailableItems ?? false,
+    hasPriceChanges: cart.hasPriceChanges ?? false,
+    messages: cart.messages ?? [],
+    expiresAt: cart.expiresAt,
   });
 }
 
@@ -136,6 +153,23 @@ export const useCart = create<CartState>()(
       backendCartId: undefined,
       items: [],
       syncing: false,
+      hasUnavailableItems: false,
+      hasPriceChanges: false,
+      messages: [],
+      expiresAt: undefined,
+      validated: false,
+
+      validate: async () => {
+        if (USE_MOCK) {
+          set({ validated: true });
+          return;
+        }
+
+        const cartId = normalizeCartSessionId(get().cartId);
+        const cart = await cartService.validateCart(cartId);
+        applyServerCart(cart, set, cartId);
+        set({ validated: true });
+      },
 
       sync: async () => {
         if (USE_MOCK) return;
@@ -244,6 +278,11 @@ export const useCart = create<CartState>()(
           coupon: undefined,
           shipping: undefined,
           shippingZip: undefined,
+          hasUnavailableItems: false,
+          hasPriceChanges: false,
+          messages: [],
+          expiresAt: undefined,
+          validated: false,
         }),
 
       itemCount: () => get().items.reduce((acc, i) => acc + i.quantity, 0),

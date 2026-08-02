@@ -1,12 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
-import { CaretRight, Handbag, Heart, Minus, Plus, ShieldCheck } from '@phosphor-icons/react';
+import { CaretRight, Handbag, Heart, Minus, Plus, ShieldCheck, Truck } from '@phosphor-icons/react';
 import { catalogService, queryKeys } from '@/lib/api';
 import { useCart } from '@/store/cart';
+import { useFavorites } from '@/store/favorites';
 import { useUI } from '@/store/ui';
 import { toast } from '@/components/ui/Toast';
 import { Container } from '@/components/ui/Layout';
@@ -16,16 +17,18 @@ import { Stars } from '@/components/ui/Stars';
 import { Badge } from '@/components/ui/Badge';
 import { Skeleton } from '@/components/ui/Skeleton';
 import { ErrorState } from '@/components/ui/States';
-import { USE_MOCK } from '@/lib/api/config';
+import { usePageMeta } from '@/hooks/usePageMeta';
+import { useViewItemList } from '@/hooks/useViewItemList';
 import { ProductGallery } from '@/components/product/ProductGallery';
 import { ProductGalleryFallback } from '@/components/product/ProductGalleryFallback';
 import { Swatches } from '@/components/product/Swatches';
 import { PriceBlock } from '@/components/product/PriceBlock';
 import { StockBadge } from '@/components/product/StockBadge';
-import { ShippingCalculator } from '@/components/product/ShippingCalculator';
 import { ProductCard } from '@/components/product/ProductCard';
-import { reviews as allReviews } from '@/lib/api/mock/account';
-import type { ProductVariant } from '@/types';
+import { analytics } from '@/lib/analytics';
+import { STORE } from '@/lib/store-info';
+import { formatPrice } from '@/lib/utils';
+import type { Product, ProductVariant } from '@/types';
 
 function normalizeVariantLabel(value?: string) {
   return (value ?? '')
@@ -98,6 +101,8 @@ export function ProductPage() {
   const navigate = useNavigate();
   const { addItem } = useCart();
   const { openCart } = useUI();
+  const favoriteItems = useFavorites((state) => state.items);
+  const toggleFavorite = useFavorites((state) => state.toggle);
 
   const { data: product, isLoading, isError, refetch } = useQuery({
     queryKey: queryKeys.product(slug!),
@@ -110,6 +115,8 @@ export function ProductPage() {
     queryFn: () => catalogService.getRelated(slug!),
     enabled: !!slug,
   });
+
+  useViewItemList('Produto · Você também pode gostar', related, product?.id);
 
   const [colorId, setColorId] = useState<string>();
   const [sizeId, setSizeId] = useState<string>();
@@ -179,7 +186,60 @@ export function ProductPage() {
     ];
   }, [product, variant?.id]);
 
-  const productReviews = allReviews.filter((r) => r.productId === product?.id);
+  const { data: productReviews = [] } = useQuery({
+    queryKey: queryKeys.productReviews(product?.id ?? ''),
+    queryFn: () => catalogService.getProductReviews(product!.id),
+    enabled: !!product?.id,
+  });
+
+  /*
+   * A API de catalogo nao devolve nota nem contagem de avaliacoes.
+   * Calculamos a partir das avaliacoes recebidas; sem avaliacoes, a secao
+   * inteira de nota some em vez de exibir "0,0 (0 avaliacoes)".
+   */
+  const reviewCount = productReviews.length;
+  const averageRating = reviewCount
+    ? productReviews.reduce((sum, review) => sum + review.rating, 0) / reviewCount
+    : 0;
+
+  /*
+   * Barra de compra fixa no celular.
+   * So aparece depois que a pessoa PASSOU do botao (bloco acima da tela).
+   * Enquanto ela ainda esta rolando em direcao ao botao, a barra seria um
+   * atalho para comprar algo que ela nem terminou de ver.
+   */
+  const buyBoxRef = useRef<HTMLDivElement>(null);
+  const [scrolledPastBuyBox, setScrolledPastBuyBox] = useState(false);
+
+  useEffect(() => {
+    const node = buyBoxRef.current;
+    if (!node) return;
+    const observer = new IntersectionObserver(
+      ([entry]) =>
+        setScrolledPastBuyBox(!entry.isIntersecting && entry.boundingClientRect.top < 0),
+      { rootMargin: '-72px 0px 0px 0px' },
+    );
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [product?.id]);
+
+  /*
+   * `view_item` uma vez por produto, nao por variacao: trocar de cor nao e uma
+   * nova visualizacao e inflaria a metrica.
+   */
+  const viewReported = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (!product || viewReported.current === product.id) return;
+    viewReported.current = product.id;
+    analytics.viewItem(product, variant);
+  }, [product, variant]);
+
+  usePageMeta({
+    title: product?.name,
+    description: product?.shortDescription,
+    image: product?.media[0]?.url,
+    type: 'product',
+  });
 
   if (isLoading) return <ProductSkeleton />;
   if (isError || !product) return <Container className="py-20"><ErrorState onRetry={() => refetch()} /></Container>;
@@ -187,6 +247,19 @@ export function ProductPage() {
   const stock = variant?.stock ?? 0;
   const colorName = product.colors.find((c) => c.id === (variant?.colorId ?? selectedColor))?.name ?? '';
   const sizeLabel = product.sizes.find((s) => s.id === (variant?.sizeId ?? selectedSize))?.label;
+  const isFavorite = favoriteItems.some((item) => item.productId === product.id);
+
+  const handleToggleFavorite = () => {
+    const added = toggleFavorite({
+      productId: product.id,
+      slug: product.slug,
+      name: product.name,
+      image: galleryMedia[0]?.url ?? product.media[0]?.url ?? '',
+      priceCentsSnapshot: variant?.priceCents ?? product.priceFromCents,
+    });
+    if (added) analytics.addToWishlist(product, variant);
+    toast.success(added ? 'Salvo nos favoritos' : 'Removido dos favoritos');
+  };
 
   const handleAdd = async (goCheckout = false) => {
     if (!variant || stock <= 0) return;
@@ -206,9 +279,14 @@ export function ProductPage() {
         quantity: qty,
       });
 
-      if (goCheckout) navigate('/checkout');
-      else {
-        toast.success('Adicionado à sacola');
+      analytics.addToCart(product, variant, qty);
+
+      // Sem toast ao abrir a sacola: o drawer subindo ja e a confirmacao, e o
+      // aviso ainda cobria o botao "Ver sacola completa".
+      if (goCheckout) {
+        analytics.beginCheckout(useCart.getState().items);
+        navigate('/checkout');
+      } else {
         openCart();
       }
     } catch (error) {
@@ -222,8 +300,9 @@ export function ProductPage() {
       <nav className="mb-6 flex items-center gap-1.5 text-xs text-graphite-soft" aria-label="Caminho">
         <Link to="/" className="hover:text-terracotta">Início</Link>
         <CaretRight size={12} />
-        <Link to={`/categoria/${product.categorySlug}`} className="capitalize hover:text-terracotta">
-          {product.categorySlug.replace('-', ' ')}
+        <Link to={`/categoria/${product.categorySlug}`} className="hover:text-terracotta">
+          {/* Nome real da categoria; o slug so entra como ultimo recurso. */}
+          {product.collection ?? product.categorySlug.replace(/-/g, ' ')}
         </Link>
         <CaretRight size={12} />
         <span className="text-graphite">{product.name}</span>
@@ -248,9 +327,13 @@ export function ProductPage() {
           {product.collection && <span className="eyebrow">{product.collection}</span>}
           <h1 className="mt-1 font-display text-3xl text-graphite sm:text-4xl">{product.name}</h1>
 
-          <div className="mt-3 flex items-center gap-3">
-            <Stars rating={product.rating} count={product.reviewCount} />
-            <span className="text-sm text-graphite-soft">·</span>
+          <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1">
+            {reviewCount > 0 && (
+              <>
+                <Stars rating={averageRating} count={reviewCount} />
+                <span className="text-sm text-graphite-soft">·</span>
+              </>
+            )}
             <StockBadge stock={stock} />
           </div>
 
@@ -258,8 +341,10 @@ export function ProductPage() {
             <PriceBlock
               priceCents={variant?.priceCents ?? product.priceFromCents}
               compareAtCents={variant?.compareAtCents}
-              installments={product.installmentsMax}
-              pixPct={product.pixDiscountPct}
+              /* Condicoes vem da configuracao da loja, nao do produto: anunciar
+                 parcelamento que o checkout nao oferece engana a cliente. */
+              installments={STORE.payment.installmentsMax ?? undefined}
+              pixPct={STORE.payment.pixDiscountPercent ?? undefined}
               size="lg"
             />
           </div>
@@ -356,108 +441,228 @@ export function ProductPage() {
             <p className="text-xs text-graphite-soft">{stock > 0 ? `${stock} disponíveis` : 'Sem estoque'}</p>
           </div>
 
-          <div className="mt-5 flex flex-col gap-3 sm:flex-row">
+          <div ref={buyBoxRef} className="mt-5 flex flex-col gap-3">
             <Button size="lg" variant="secondary" fullWidth onClick={() => handleAdd(true)} disabled={stock <= 0}>
               Comprar agora
             </Button>
-            <Button size="lg" variant="outline" fullWidth onClick={() => handleAdd(false)} disabled={stock <= 0}>
-              <Handbag size={18} /> Adicionar à sacola
-            </Button>
-            <button aria-label="Favoritar" className="tactile hidden h-13 w-13 shrink-0 items-center justify-center rounded-[var(--radius-md)] border border-border text-graphite hover:text-terracotta sm:flex">
-              <Heart size={20} />
-            </button>
+            {/* Sacola e favorito dividem a linha em qualquer largura */}
+            <div className="flex gap-3">
+              <Button size="lg" variant="outline" fullWidth onClick={() => handleAdd(false)} disabled={stock <= 0}>
+                <Handbag size={18} /> Adicionar à sacola
+              </Button>
+              <button
+                type="button"
+                onClick={handleToggleFavorite}
+                aria-label={isFavorite ? 'Remover dos favoritos' : 'Salvar nos favoritos'}
+                aria-pressed={isFavorite}
+                className={`tactile grid h-13 w-13 shrink-0 place-items-center rounded-[var(--radius-md)] border transition-colors ${
+                  isFavorite
+                    ? 'border-terracotta bg-terracotta/10 text-terracotta'
+                    : 'border-graphite/25 text-graphite hover:border-graphite hover:text-terracotta'
+                }`}
+              >
+                <Heart size={20} weight={isFavorite ? 'fill' : 'regular'} />
+              </button>
+            </div>
           </div>
 
           <p className="mt-3 flex items-center gap-2 text-xs text-graphite-soft">
-            <ShieldCheck size={16} className="text-success" /> Compra 100% segura · Troca facilitada em até 7 dias
+            <ShieldCheck size={16} className="text-success" /> Compra 100% segura · Troca facilitada
+            em até {STORE.returnWindowDays} dias
           </p>
 
-          {USE_MOCK && (
-            <div className="mt-6">
-              <ShippingCalculator subtotalCents={(variant?.priceCents ?? product.priceFromCents) * qty} />
+          {/*
+            Frete: informamos a regra em vez de simular.
+            O backend so cota frete no checkout (exige carrinho, endereco e
+            login), entao uma calculadora de CEP aqui nao teria como responder.
+          */}
+          <div className="mt-6 flex items-start gap-3 rounded-[var(--radius-lg)] border border-border bg-surface p-4">
+            <span className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-cream-light text-terracotta">
+              <Truck size={18} aria-hidden />
+            </span>
+            <div className="text-sm">
+              <p className="font-medium text-graphite">
+                Frete grátis acima de {formatPrice(STORE.freeShippingThresholdCents)}
+              </p>
+              <p className="mt-0.5 text-graphite-soft">
+                Enviamos para todo o Brasil. O prazo e o valor exatos aparecem no checkout, a
+                partir do seu CEP.
+              </p>
             </div>
-          )}
+          </div>
 
           {/* Acordeoes */}
           <div className="mt-8">
-            <Accordion
-              defaultOpen={0}
-              items={[
-                {
-                  title: 'Descrição',
-                  content: <ProductDescription value={product.description} />,
-                },
-                {
-                  title: 'Medidas e materiais',
-                  content: (
-                    <ul className="grid grid-cols-2 gap-y-2">
-                      {product.specs.heightCm && <Spec label="Altura" value={`${product.specs.heightCm} cm`} />}
-                      {product.specs.widthCm && <Spec label="Largura" value={`${product.specs.widthCm} cm`} />}
-                      {product.specs.depthCm && <Spec label="Profundidade" value={`${product.specs.depthCm} cm`} />}
-                      {product.specs.weightG && <Spec label="Peso" value={`${product.specs.weightG} g`} />}
-                      {product.specs.capacity && <Spec label="Capacidade" value={product.specs.capacity} />}
-                      {product.specs.material && <Spec label="Material" value={product.specs.material} />}
-                    </ul>
-                  ),
-                },
-                { title: 'Cuidados', content: <p>{product.specs.care}</p> },
-                {
-                  title: 'Trocas e envio',
-                  content: (
-                    <p>
-                      Você tem até 7 dias corridos após o recebimento para solicitar troca ou
-                      devolução. O frete é calculado no checkout e enviamos para todo o Brasil.
-                    </p>
-                  ),
-                },
-              ]}
-            />
+            <Accordion defaultOpen={0} items={buildAccordionItems(product)} />
           </div>
         </div>
       </div>
 
       {/* Avaliacoes */}
-      <section className="mt-12 lg:mt-16">
-        <h2 className="font-display text-2xl text-graphite">Avaliações</h2>
-        <div className="mt-4 flex items-center gap-4">
-          <span className="font-display text-4xl text-graphite">{product.rating.toFixed(1)}</span>
-          <div>
-            <Stars rating={product.rating} />
-            <p className="mt-1 text-sm text-graphite-soft">{product.reviewCount} avaliações</p>
-          </div>
-        </div>
+      <section className="mt-section-sm">
+        <h2 className="font-display text-display-sm text-graphite">Avaliações</h2>
 
-        {productReviews.length > 0 ? (
-          <ul className="mt-8 grid gap-5 md:grid-cols-2">
-            {productReviews.map((r) => (
-              <li key={r.id} className="rounded-[var(--radius-lg)] border border-border bg-surface p-5">
-                <div className="flex items-center justify-between">
-                  <Stars rating={r.rating} />
-                  {r.verifiedPurchase && <Badge kind="pronta-entrega" className="!bg-success-soft !text-success" />}
-                </div>
-                <p className="mt-3 font-medium text-graphite">{r.title}</p>
-                <p className="mt-1 text-sm text-graphite-soft">{r.body}</p>
-                <p className="mt-3 text-xs text-store-gray">{r.customerName}</p>
-              </li>
-            ))}
-          </ul>
+        {reviewCount > 0 ? (
+          <>
+            <div className="mt-4 flex items-center gap-4">
+              <span className="font-display text-display-md text-graphite">
+                {averageRating.toFixed(1).replace('.', ',')}
+              </span>
+              <div>
+                <Stars rating={averageRating} />
+                <p className="mt-1 text-sm text-graphite-soft">
+                  {reviewCount} {reviewCount === 1 ? 'avaliação' : 'avaliações'}
+                </p>
+              </div>
+            </div>
+
+            <ul className="mt-8 grid gap-4 md:grid-cols-2">
+              {productReviews.map((review) => (
+                <li
+                  key={review.id}
+                  className="rounded-[var(--radius-lg)] border border-border bg-surface p-5"
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <Stars rating={review.rating} />
+                    {review.verifiedPurchase && (
+                      <Badge kind="pronta-entrega" className="!bg-success-soft !text-success" />
+                    )}
+                  </div>
+                  <p className="mt-3 font-medium text-graphite">{review.title}</p>
+                  <p className="mt-1 text-sm text-graphite-soft">{review.body}</p>
+                  <p className="mt-3 text-xs text-store-gray">{review.customerName}</p>
+                </li>
+              ))}
+            </ul>
+          </>
         ) : (
-          <p className="mt-6 text-sm text-graphite-soft">Este produto ainda não tem avaliações. Seja a primeira!</p>
+          <p className="mt-4 text-sm text-graphite-soft">
+            Este produto ainda não tem avaliações.
+          </p>
         )}
       </section>
 
       {/* Relacionados */}
       {related && related.length > 0 && (
-        <section className="mt-12 lg:mt-16">
-          <h2 className="mb-8 font-display text-2xl text-graphite">Você também pode gostar</h2>
-          <div className="grid grid-cols-2 gap-x-5 gap-y-9 md:grid-cols-4">
-            {related.map((p) => (
-              <ProductCard key={p.id} product={p} />
+        <section className="mt-section-sm">
+          <h2 className="mb-8 font-display text-display-sm text-graphite">
+            Você também pode gostar
+          </h2>
+          <div className="grid grid-cols-2 gap-x-4 gap-y-9 sm:gap-x-5 md:grid-cols-4">
+            {related.map((item, index) => (
+              <ProductCard
+                key={item.id}
+                product={item}
+                listName="Produto · Você também pode gostar"
+                index={index}
+              />
             ))}
           </div>
         </section>
       )}
+
+      <ProductJsonLd product={product} priceCents={variant?.priceCents ?? product.priceFromCents} inStock={stock > 0} />
+
+      {/* Barra de compra fixa: so no celular e so depois que o botao sai da tela */}
+      {scrolledPastBuyBox && stock > 0 && (
+        <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-cream-lighter/95 px-4 pt-3 pb-safe backdrop-blur-md lg:hidden">
+          <div className="mx-auto flex max-w-[1280px] items-center gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-xs text-graphite-soft">{product.name}</p>
+              <p className="font-semibold text-graphite">
+                {formatPrice(variant?.priceCents ?? product.priceFromCents)}
+              </p>
+            </div>
+            <Button size="lg" variant="secondary" onClick={() => handleAdd(false)} className="shrink-0">
+              <Handbag size={18} /> Adicionar
+            </Button>
+          </div>
+        </div>
+      )}
     </Container>
+  );
+}
+
+/** Acordeoes: uma secao so aparece quando tem conteudo de verdade. */
+function buildAccordionItems(product: Product) {
+  const { specs } = product;
+  const measurements = [
+    specs.heightCm && { label: 'Altura', value: `${specs.heightCm} cm` },
+    specs.widthCm && { label: 'Largura', value: `${specs.widthCm} cm` },
+    specs.depthCm && { label: 'Profundidade', value: `${specs.depthCm} cm` },
+    specs.weightG && { label: 'Peso', value: `${specs.weightG} g` },
+    specs.capacity && { label: 'Capacidade', value: specs.capacity },
+    specs.material && { label: 'Material', value: specs.material },
+  ].filter(Boolean) as { label: string; value: string }[];
+
+  const items = [
+    { title: 'Descrição', content: <ProductDescription value={product.description} /> },
+  ];
+
+  // O backend nao guarda dimensoes: sem dados, a secao inteira sai em vez de
+  // abrir uma lista vazia.
+  if (measurements.length > 0) {
+    items.push({
+      title: 'Medidas e materiais',
+      content: (
+        <ul className="grid grid-cols-2 gap-y-2">
+          {measurements.map((spec) => (
+            <Spec key={spec.label} label={spec.label} value={spec.value} />
+          ))}
+        </ul>
+      ),
+    });
+  }
+
+  if (specs.care) items.push({ title: 'Cuidados', content: <p>{specs.care}</p> });
+
+  items.push({
+    title: 'Trocas e envio',
+    content: (
+      <p>
+        Você tem até {STORE.returnWindowDays} dias corridos após o recebimento para solicitar troca
+        ou devolução. O frete é calculado no checkout e enviamos para todo o Brasil.
+      </p>
+    ),
+  });
+
+  return items;
+}
+
+/**
+ * Dados estruturados para buscadores.
+ * Sem `aggregateRating`: marcar nota que nao vem de avaliacao verificada e
+ * motivo de penalizacao no Google e engana quem le o resultado da busca.
+ */
+function ProductJsonLd({
+  product,
+  priceCents,
+  inStock,
+}: {
+  product: Product;
+  priceCents: number;
+  inStock: boolean;
+}) {
+  const data = {
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: product.name,
+    description: product.shortDescription || product.description,
+    image: product.media.map((media) => media.url).slice(0, 5),
+    brand: { '@type': 'Brand', name: STORE.name },
+    offers: {
+      '@type': 'Offer',
+      price: (priceCents / 100).toFixed(2),
+      priceCurrency: 'BRL',
+      availability: inStock
+        ? 'https://schema.org/InStock'
+        : 'https://schema.org/OutOfStock',
+      url: typeof window !== 'undefined' ? window.location.href : undefined,
+    },
+  };
+
+  return (
+    <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(data) }} />
   );
 }
 

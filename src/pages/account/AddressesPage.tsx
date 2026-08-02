@@ -24,6 +24,14 @@ export function AddressesPage() {
     mutationFn: accountService.deleteAddress,
     onSuccess: () => { qc.invalidateQueries({ queryKey: queryKeys.addresses }); toast.success('Endereço removido'); },
   });
+  const makePrimary = useMutation({
+    mutationFn: (id: string) => accountService.setPrimaryAddress(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.addresses });
+      toast.success('Endereço padrão atualizado');
+    },
+    onError: (error) => toast.error((error as Error).message || 'Não foi possível atualizar.'),
+  });
 
   if (editing) {
     return (
@@ -63,8 +71,19 @@ export function AddressesPage() {
               <p className="mt-3 text-sm text-graphite">{a.recipient}</p>
               <p className="text-sm text-graphite-soft">{a.street}, {a.number}{a.complement ? ` · ${a.complement}` : ''}</p>
               <p className="text-sm text-graphite-soft">{a.district} — {a.city}/{a.state} · {formatZip(a.zip)}</p>
-              <div className="mt-4 flex gap-2">
+              <div className="mt-4 flex flex-wrap gap-2">
                 <Button variant="outline" size="sm" onClick={() => setEditing(a)}><PencilSimple size={15} /> Editar</Button>
+                {/* PATCH /me/enderecos/{id}/principal existia e nao era usado */}
+                {!a.isDefault && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    loading={makePrimary.isPending && makePrimary.variables === a.id}
+                    onClick={() => makePrimary.mutate(a.id)}
+                  >
+                    <Star size={15} /> Tornar padrão
+                  </Button>
+                )}
                 <Button variant="ghost" size="sm" onClick={() => remove.mutate(a.id)} className="text-danger"><Trash size={15} /> Remover</Button>
               </div>
             </li>

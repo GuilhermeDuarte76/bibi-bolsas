@@ -10,10 +10,13 @@ export function ProductRow({
   products,
   loading,
   skeletonCount = 4,
+  listName,
 }: {
   products?: ProductSummary[];
   loading?: boolean;
   skeletonCount?: number;
+  /** Origem do clique para o relatorio (`select_item`). */
+  listName?: string;
 }) {
   if (loading) {
     return (
@@ -29,18 +32,28 @@ export function ProductRow({
 
   return (
     <>
-      {/* Mobile: carrossel horizontal */}
-      <div className="no-scrollbar -mx-4 flex snap-x snap-mandatory gap-4 overflow-x-auto px-4 pb-2 md:hidden">
-        {products.map((p) => (
+      {/*
+        Mobile: carrossel horizontal.
+        As margens negativas acompanham o padding do Container (16 -> 24px),
+        senao o carrossel sai do alinhamento do resto da pagina acima de 480px.
+
+        `contain: paint` e obrigatorio aqui. Sem ele o Chrome mobile expande o
+        viewport de layout para caber o conteudo do scroller: a pagina inteira
+        passa a deslizar para o lado, o header sai de vista e todo elemento
+        `fixed` (toaster, sacola, busca) estica junto. `overflow-x: auto`
+        sozinho nao impede isso.
+      */}
+      <div className="no-scrollbar -mx-4 flex snap-x snap-proximity gap-4 overflow-x-auto [contain:paint] px-4 pb-2 scroll-pl-4 sm:-mx-6 sm:px-6 sm:scroll-pl-6 md:hidden">
+        {products.map((p, index) => (
           <div key={p.id} className="w-[64%] shrink-0 snap-start sm:w-[44%]">
-            <ProductCard product={p} />
+            <ProductCard product={p} listName={listName} index={index} />
           </div>
         ))}
       </div>
       {/* Desktop: grade */}
       <div className="hidden grid-cols-4 gap-x-5 gap-y-8 md:grid">
-        {products.slice(0, 4).map((p) => (
-          <ProductCard key={p.id} product={p} />
+        {products.slice(0, 4).map((p, index) => (
+          <ProductCard key={p.id} product={p} listName={listName} index={index} />
         ))}
       </div>
     </>

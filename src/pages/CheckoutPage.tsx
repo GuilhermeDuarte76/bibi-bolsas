@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CaretLeft, Lightning, MapPin, Plus, ShieldCheck } from '@phosphor-icons/react';
+import { CaretLeft, Lightning, MapPin, Plus, ShieldCheck, WarningCircle } from '@phosphor-icons/react';
 import { useCart } from '@/store/cart';
 import {
   accountService,
@@ -25,9 +25,12 @@ import { OrderSummary } from '@/components/checkout/OrderSummary';
 import { AddressForm } from '@/components/checkout/AddressForm';
 import { PaymentMethodSelector } from '@/components/checkout/PaymentMethodSelector';
 import { toast } from '@/components/ui/Toast';
+import { usePageMeta } from '@/hooks/usePageMeta';
+import { analytics } from '@/lib/analytics';
 import { formatCpf, formatPhone, formatPrice, formatZip } from '@/lib/utils';
 
 export function CheckoutPage() {
+  usePageMeta({ title: 'Finalizar compra', noIndex: true });
   const navigate = useNavigate();
   const cart = useCart();
   const syncCart = useCart((state) => state.sync);
@@ -83,6 +86,20 @@ export function CheckoutPage() {
     );
   }
 
+  // Item indisponivel derruba o pedido no backend: melhor barrar na sacola,
+  // onde da para remover, do que deixar avancar quatro etapas ate o erro.
+  if (cart.items.some((item) => item.isAvailable === false)) {
+    return (
+      <Container className="py-section">
+        <EmptyState
+          title="Revise sua sacola antes de continuar"
+          description="Um ou mais itens ficaram indisponíveis. Remova para seguir com a compra."
+          action={{ label: 'Voltar para a sacola', onClick: () => navigate('/carrinho') }}
+        />
+      </Container>
+    );
+  }
+
   if (!USE_MOCK && !cart.backendCartId) {
     return (
       <Container className="py-16">
@@ -127,7 +144,12 @@ export function CheckoutPage() {
                 cartId={cart.backendCartId}
                 subtotalCents={Math.max(0, subtotal - discount)}
                 selected={shipping}
-                onSelect={(s) => { setShipping(s); cart.setShipping(s, address.zip); goNext(); }}
+                onSelect={(s) => {
+                  setShipping(s);
+                  cart.setShipping(s, address.zip);
+                  analytics.addShippingInfo(cart.items, `${s.carrier} · ${s.service}`);
+                  goNext();
+                }}
               />
             )}
             {step === 3 && (
@@ -149,7 +171,16 @@ export function CheckoutPage() {
                     subtotalCents={subtotal}
                   />
                 )}
-                <Button size="lg" className="mt-6" onClick={goNext}>Revisar pedido</Button>
+                <Button
+                  size="lg"
+                  className="mt-6"
+                  onClick={() => {
+                    analytics.addPaymentInfo(cart.items, payment);
+                    goNext();
+                  }}
+                >
+                  Revisar pedido
+                </Button>
               </div>
             )}
             {step === 4 && identity && address && shipping && (
@@ -160,6 +191,8 @@ export function CheckoutPage() {
                 payment={payment}
                 installments={installments}
                 cartId={cart.backendCartId}
+                couponCode={cart.coupon?.code}
+                onFix={setStep}
               />
             )}
           </div>
@@ -449,9 +482,45 @@ function CouponBox({
 }
 
 // ---- Etapa 4: Revisao ----
-function ReviewStep({ identity, address, shipping, payment, installments, cartId }: { identity: IdentityFormValues; address: Address; shipping: ShippingOption; payment: PaymentMethod; installments: number; cartId?: number }) {
+function ReviewStep({
+  identity,
+  address,
+  shipping,
+  payment,
+  installments,
+  cartId,
+  couponCode,
+  onFix,
+}: {
+  identity: IdentityFormValues;
+  address: Address;
+  shipping: ShippingOption;
+  payment: PaymentMethod;
+  installments: number;
+  cartId?: number;
+  couponCode?: string;
+  onFix: (step: number) => void;
+}) {
   const navigate = useNavigate();
   const cart = useCart();
+
+  /*
+   * Pre-validacao antes de criar o pedido.
+   *
+   * O backend confere perfil, endereco, estoque, preco e cupom de uma vez.
+   * Sem isso, a cliente so descobria o problema ao apertar "confirmar e pagar",
+   * depois de ter preenchido as quatro etapas anteriores.
+   */
+  const addressId = Number(address.id);
+  const validation = useQuery({
+    queryKey: ['checkout-validate', cartId, addressId, couponCode],
+    queryFn: () =>
+      checkoutService.validateCheckout({ cartId: cartId!, addressId, couponCode }),
+    enabled: !USE_MOCK && !!cartId && Number.isInteger(addressId),
+    retry: false,
+  });
+
+  const blocked = validation.data ? !validation.data.isValid : false;
 
   const create = useMutation({
     mutationFn: () =>
@@ -490,14 +559,56 @@ function ReviewStep({ identity, address, shipping, payment, installments, cartId
 
   return (
     <div>
-      <h2 className="mb-5 font-display text-2xl text-graphite">Revisão</h2>
+      <h2 className="mb-5 font-display text-display-sm text-graphite">Revisão</h2>
+
+      {validation.isFetching && (
+        <p className="mb-4 text-sm text-graphite-soft">Conferindo os dados do pedido…</p>
+      )}
+
+      {blocked && (
+        <div className="mb-5 rounded-[var(--radius-lg)] border border-danger/30 bg-danger-soft p-4">
+          <p className="flex items-center gap-2 font-medium text-danger">
+            <WarningCircle size={18} weight="fill" aria-hidden />
+            Falta resolver antes de fechar o pedido
+          </p>
+          <div className="mt-3 flex flex-col gap-3">
+            {validation.data!.groups.map((group) => (
+              <div key={`${group.step}-${group.title}`}>
+                <p className="text-xs font-semibold uppercase tracking-wide text-danger/80">
+                  {group.title}
+                </p>
+                <ul className="mt-1 flex list-disc flex-col gap-0.5 pl-5 text-sm text-graphite">
+                  {group.issues.map((issue) => (
+                    <li key={issue}>{issue}</li>
+                  ))}
+                </ul>
+                <button
+                  type="button"
+                  onClick={() => onFix(group.step)}
+                  className="mt-1 text-sm font-medium text-danger underline underline-offset-2"
+                >
+                  Corrigir
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-col gap-4">
         <ReviewBlock title="Identificação" lines={[identity.name, identity.email, identity.phone]} />
         <ReviewBlock title="Entrega" lines={[`${address.street}, ${address.number}`, `${address.district} — ${address.city}/${address.state}`, `${shipping.carrier} · ${shipping.service} (até ${shipping.etaDays} dias úteis)`]} />
         <ReviewBlock title="Pagamento" lines={[methodLabel]} />
       </div>
 
-      <Button size="lg" fullWidth className="mt-6" loading={create.isPending} onClick={() => create.mutate()}>
+      <Button
+        size="lg"
+        fullWidth
+        className="mt-6"
+        loading={create.isPending}
+        disabled={blocked || validation.isFetching}
+        onClick={() => create.mutate()}
+      >
         <Lightning size={18} weight="fill" /> Confirmar e pagar
       </Button>
       <p className="mt-3 text-center text-xs text-graphite-soft">

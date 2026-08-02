@@ -14,6 +14,13 @@ const CheckoutPage = lazy(() => import('@/pages/CheckoutPage').then((m) => ({ de
 const CheckoutSuccessPage = lazy(() => import('@/pages/CheckoutResultPages').then((m) => ({ default: m.CheckoutSuccessPage })));
 const CheckoutPendingPage = lazy(() => import('@/pages/CheckoutResultPages').then((m) => ({ default: m.CheckoutPendingPage })));
 const AuthPage = lazy(() => import('@/pages/AuthPage').then((m) => ({ default: m.AuthPage })));
+const FavoritesPage = lazy(() => import('@/pages/FavoritesPage').then((m) => ({ default: m.FavoritesPage })));
+const ResetPasswordPage = lazy(() =>
+  import('@/pages/ResetPasswordPage').then((m) => ({ default: m.ResetPasswordPage })),
+);
+const InstitutionalPage = lazy(() =>
+  import('@/pages/institucional/InstitutionalPage').then((m) => ({ default: m.InstitutionalPage })),
+);
 const NotFoundPage = lazy(() => import('@/pages/NotFoundPage').then((m) => ({ default: m.NotFoundPage })));
 
 // Area do cliente
@@ -22,6 +29,13 @@ const AccountOverview = lazy(() => import('@/pages/account/AccountOverview').the
 const OrdersPage = lazy(() => import('@/pages/account/OrdersPage').then((m) => ({ default: m.OrdersPage })));
 const OrderDetailPage = lazy(() => import('@/pages/account/OrderDetailPage').then((m) => ({ default: m.OrderDetailPage })));
 const AddressesPage = lazy(() => import('@/pages/account/AddressesPage').then((m) => ({ default: m.AddressesPage })));
+const AccountSettingsPage = lazy(() =>
+  import('@/pages/account/AccountSettingsPage').then((m) => ({ default: m.AccountSettingsPage })),
+);
+const PrivacyPage = lazy(() => import('@/pages/account/PrivacyPage').then((m) => ({ default: m.PrivacyPage })));
+const ConfirmEmailPage = lazy(() =>
+  import('@/pages/ConfirmEmailPage').then((m) => ({ default: m.ConfirmEmailPage })),
+);
 const ReviewsPage = lazy(() => import('@/pages/account/ReviewsPage').then((m) => ({ default: m.ReviewsPage })));
 
 // Admin
@@ -71,6 +85,14 @@ export default function App() {
             <Route path="checkout/sucesso" element={<CheckoutSuccessPage />} />
             <Route path="checkout/pagamento-pendente" element={<CheckoutPendingPage />} />
             <Route path="entrar" element={<AuthPage />} />
+            {/* Destino do link enviado por e-mail (token na query) */}
+            <Route path="redefinir-senha" element={<ResetPasswordPage />} />
+            <Route path="confirmar-email" element={<ConfirmEmailPage />} />
+            <Route path="favoritos" element={<FavoritesPage />} />
+
+            {/* Ajuda e institucional (conteudo em pages/institucional/content.ts) */}
+            <Route path="ajuda/:slug" element={<InstitutionalPage group="ajuda" />} />
+            <Route path="institucional/:slug" element={<InstitutionalPage group="institucional" />} />
 
             {/* Area do cliente (protegida) */}
             <Route
@@ -85,6 +107,8 @@ export default function App() {
               <Route path="pedidos" element={<OrdersPage />} />
               <Route path="pedidos/:id" element={<OrderDetailPage />} />
               <Route path="enderecos" element={<AddressesPage />} />
+              <Route path="dados" element={<AccountSettingsPage />} />
+              <Route path="privacidade" element={<PrivacyPage />} />
               <Route path="avaliacoes" element={<ReviewsPage />} />
             </Route>
 

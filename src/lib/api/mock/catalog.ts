@@ -77,7 +77,7 @@ export const categories: Category[] = [
   {
     id: 'cat-promocoes',
     slug: 'promocoes',
-    name: 'Promocoes',
+    name: 'Promoções',
     tagline: 'Curadoria especial com precos especiais.',
     image: productImage('promocoes', 'rose', 0),
     accent: 'school-rose',

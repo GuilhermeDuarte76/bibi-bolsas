@@ -12,16 +12,13 @@ import type {
   ProductSize,
   ProductSummary,
   ProductVariant,
+  Review,
 } from '@/types';
 import { productImage } from '@/lib/images';
 import { USE_MOCK } from './config';
 import { delay, http } from './http';
-import {
-  allColors,
-  allMaterials,
-  categories as mockCategories,
-  products as mockProducts,
-} from './mock/catalog';
+import { categories as mockCategories, products as mockProducts } from './mock/catalog';
+import { reviews as mockReviews } from './mock/account';
 
 interface BackendPaged<T> {
   items: T[];
@@ -264,29 +261,65 @@ function mapPagedProducts(
   };
 }
 
-function buildFacetsFromSummaries(items: ProductSummary[]): CatalogFacets {
-  const prices = items.map((item) => item.priceFromCents).filter((price) => price > 0);
-  const colorMap = new Map<string, { color: ProductColor; count: number }>();
+/**
+ * Amostra usada para montar as facetas.
+ *
+ * O backend nao tem endpoint de facetas, e calcular sobre a pagina atual (12
+ * itens) produzia contagem errada e faixa de preco errada no slider. Enquanto
+ * nao houver `GET /api/produtos/facetas`, buscamos uma amostra maior da
+ * categoria/busca — sem os demais filtros, para as opcoes nao sumirem conforme
+ * a pessoa filtra.
+ */
+const FACET_SAMPLE_SIZE = 100;
 
-  items.forEach((item) => {
-    item.colors.forEach((color) => {
-      const current = colorMap.get(color.id);
-      colorMap.set(color.id, {
-        color,
-        count: (current?.count ?? 0) + 1,
-      });
+/** Conta em quantos produtos distintos cada valor aparece. */
+function countByProduct<T>(
+  products: T[],
+  extract: (product: T) => { value: string; label: string; hex?: string }[],
+): (FacetOption & { hex?: string })[] {
+  const map = new Map<string, { label: string; hex?: string; count: number }>();
+
+  products.forEach((product) => {
+    const seen = new Set<string>();
+    extract(product).forEach(({ value, label, hex }) => {
+      if (!value || seen.has(value)) return;
+      seen.add(value);
+      const current = map.get(value);
+      map.set(value, { label, hex: hex ?? current?.hex, count: (current?.count ?? 0) + 1 });
     });
   });
 
+  return [...map.entries()]
+    .map(([value, { label, hex, count }]) => ({ value, label, hex, count }))
+    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'pt-BR'));
+}
+
+function buildBackendFacets(products: BackendProductListDto[]): CatalogFacets {
+  const prices = products
+    .flatMap((product) => [product.promotionalPriceFrom ?? product.priceFrom])
+    .map((price) => toCents(price) ?? 0)
+    .filter((price) => price > 0);
+
   return {
-    colors: [...colorMap.values()].map(({ color, count }) => ({
-      value: color.id,
-      label: color.name,
-      count,
-    })),
-    sizes: [],
-    materials: [],
-    occasions: [],
+    colors: countByProduct(products, (product) =>
+      (product.variants ?? [])
+        .filter((variant) => variant.color?.trim())
+        .map((variant) => ({
+          value: variant.color!.trim(),
+          label: variant.color!.trim(),
+          hex: variant.colorHex ?? undefined,
+        })),
+    ),
+    sizes: countByProduct(products, (product) =>
+      (product.variants ?? [])
+        .filter((variant) => variant.size?.trim())
+        .map((variant) => ({ value: variant.size!.trim(), label: variant.size!.trim() })),
+    ),
+    materials: countByProduct(products, (product) =>
+      (product.variants ?? [])
+        .filter((variant) => variant.material?.trim())
+        .map((variant) => ({ value: variant.material!.trim(), label: variant.material!.trim() })),
+    ),
     priceRange: {
       minCents: prices.length ? Math.min(...prices) : 0,
       maxCents: prices.length ? Math.max(...prices) : 100000,
@@ -297,6 +330,7 @@ function buildFacetsFromSummaries(items: ProductSummary[]): CatalogFacets {
 function mapSort(sort?: string): string | undefined {
   if (sort === 'novidade') return 'lancamentos';
   if (sort === 'menor-preco' || sort === 'maior-preco') return sort;
+  // `destaque` e a ordem padrao do backend: nao envia parametro.
   return undefined;
 }
 
@@ -304,12 +338,13 @@ function mapProductQuery(filters: CatalogFilters): Record<string, unknown> {
   return {
     search: filters.search,
     category: filters.category && filters.category !== 'promocoes' ? filters.category : undefined,
-    color: filters.colors?.[0],
-    material: filters.materials?.[0],
-    size: filters.sizes?.[0],
+    color: filters.color,
+    material: filters.material,
+    size: filters.size,
     minPrice: filters.minPriceCents != null ? filters.minPriceCents / 100 : undefined,
     maxPrice: filters.maxPriceCents != null ? filters.maxPriceCents / 100 : undefined,
     available: filters.onlyInStock ? true : undefined,
+    isFeatured: filters.onlyFeatured ? true : undefined,
     isPromotion: filters.onlyPromo || filters.category === 'promocoes' ? true : undefined,
     sort: mapSort(filters.sort),
     page: filters.page ?? 1,
@@ -446,8 +481,13 @@ function mapBackendDetail(dto: BackendProductDetailDto): Product {
     }),
     priceFromCents,
     compareAtFromCents,
-    installmentsMax: 6,
-    pixDiscountPct: 5,
+    /*
+     * Nao inventamos condicao de pagamento aqui: o backend nao expoe
+     * parcelamento nem desconto Pix. O que a loja anuncia sai de
+     * `STORE.payment`, que hoje esta zerado porque so existe Pix a vista.
+     */
+    installmentsMax: undefined,
+    pixDiscountPct: undefined,
     rating: 0,
     reviewCount: 0,
     colors,
@@ -467,8 +507,13 @@ const SORTERS: Record<string, (a: Product, b: Product) => number> = {
   novidade: (a, b) => +new Date(b.createdAt) - +new Date(a.createdAt),
   'menor-preco': (a, b) => a.priceFromCents - b.priceFromCents,
   'maior-preco': (a, b) => b.priceFromCents - a.priceFromCents,
-  'mais-vendidos': (a, b) => b.reviewCount - a.reviewCount,
 };
+
+/** Compara rotulos ignorando acento e caixa — no mock e na API o valor e texto. */
+function labelMatches(candidate: string | undefined, expected: string | undefined): boolean {
+  if (!expected) return true;
+  return normalizeToken(candidate ?? '') === normalizeToken(expected);
+}
 
 function applyFilters(list: Product[], f: CatalogFilters): Product[] {
   let out = [...list];
@@ -490,12 +535,12 @@ function applyFilters(list: Product[], f: CatalogFilters): Product[] {
   }
   if (f.minPriceCents != null) out = out.filter((p) => p.priceFromCents >= f.minPriceCents!);
   if (f.maxPriceCents != null) out = out.filter((p) => p.priceFromCents <= f.maxPriceCents!);
-  if (f.colors?.length) out = out.filter((p) => p.colors.some((c) => f.colors!.includes(c.id)));
-  if (f.sizes?.length) out = out.filter((p) => p.sizes.some((s) => f.sizes!.includes(s.id)));
-  if (f.materials?.length) out = out.filter((p) => p.specs.material && f.materials!.includes(p.specs.material));
-  if (f.occasions?.length) out = out.filter((p) => p.occasions.some((o) => f.occasions!.includes(o)));
+  if (f.color) out = out.filter((p) => p.colors.some((c) => labelMatches(c.name, f.color)));
+  if (f.size) out = out.filter((p) => p.sizes.some((s) => labelMatches(s.label, f.size)));
+  if (f.material) out = out.filter((p) => labelMatches(p.specs.material, f.material));
   if (f.onlyPromo) out = out.filter((p) => p.badges.includes('promocao') || p.compareAtFromCents);
   if (f.onlyInStock) out = out.filter((p) => p.variants.some((v) => v.stock > 0));
+  if (f.onlyFeatured) out = out.filter((p) => p.rating >= 4.5);
 
   const sorter = SORTERS[f.sort ?? 'destaque'];
   out.sort(sorter);
@@ -503,51 +548,21 @@ function applyFilters(list: Product[], f: CatalogFilters): Product[] {
 }
 
 function buildFacets(list: Product[]): CatalogFacets {
-  const count = <T>(items: T[]) => {
-    const map = new Map<string, number>();
-    items.forEach((i) => map.set(String(i), (map.get(String(i)) ?? 0) + 1));
-    return map;
-  };
+  const colors = countByProduct(list, (product) =>
+    product.colors.map((color) => ({ value: color.name, label: color.name, hex: color.hex })),
+  );
+  const sizes = countByProduct(list, (product) =>
+    product.sizes.map((size) => ({ value: size.label, label: size.label })),
+  );
+  const materials = countByProduct(list, (product) =>
+    product.specs.material ? [{ value: product.specs.material, label: product.specs.material }] : [],
+  );
 
-  const colorCounts = count(list.flatMap((p) => p.colors.map((c) => c.id)));
-  const sizeCounts = count(list.flatMap((p) => p.sizes.map((s) => s.id)));
-  const materialCounts = count(list.map((p) => p.specs.material).filter(Boolean) as string[]);
-  const occasionCounts = count(list.flatMap((p) => p.occasions));
-
-  const colors: FacetOption[] = allColors
-    .filter((c) => colorCounts.has(c.id))
-    .map((c) => ({ value: c.id, label: c.name, count: colorCounts.get(c.id)! }));
-
-  const sizeLabels = new Map(list.flatMap((p) => p.sizes).map((s) => [s.id, s.label]));
-  const sizes: FacetOption[] = [...sizeCounts.entries()].map(([value, c]) => ({
-    value,
-    label: sizeLabels.get(value) ?? value,
-    count: c,
-  }));
-
-  const materials: FacetOption[] = allMaterials
-    .filter((m) => materialCounts.has(m))
-    .map((m) => ({ value: m, label: m, count: materialCounts.get(m)! }));
-
-  const occasionLabels: Record<string, string> = {
-    trabalho: 'Trabalho',
-    passeio: 'Passeio',
-    viagem: 'Viagem',
-    escola: 'Escola',
-    presente: 'Presente',
-  };
-  const occasions: FacetOption[] = [...occasionCounts.entries()].map(([value, c]) => ({
-    value,
-    label: occasionLabels[value] ?? value,
-    count: c,
-  }));
-
-  const prices = list.map((p) => p.priceFromCents);
+  const prices = list.map((p) => p.priceFromCents).filter((price) => price > 0);
   return {
     colors,
     sizes,
     materials,
-    occasions,
     priceRange: {
       minCents: prices.length ? Math.min(...prices) : 0,
       maxCents: prices.length ? Math.max(...prices) : 100000,
@@ -587,11 +602,24 @@ export const catalogService = {
         facets: buildFacets(facetBase),
       });
     }
-    const page = await fetchBackendProducts(mapProductQuery(filters), filters.category);
-    return {
-      page,
-      facets: buildFacetsFromSummaries(page.items),
-    };
+    // Facetas vem de uma amostra da categoria/busca, sem os demais filtros:
+    // as opcoes precisam continuar visiveis depois que a pessoa filtra.
+    const [page, facetSample] = await Promise.all([
+      fetchBackendProducts(mapProductQuery(filters), filters.category),
+      http<BackendPaged<BackendProductListDto>>('/produtos', {
+        auth: false,
+        query: {
+          search: filters.search,
+          category:
+            filters.category && filters.category !== 'promocoes' ? filters.category : undefined,
+          isPromotion: filters.category === 'promocoes' ? true : undefined,
+          page: 1,
+          pageSize: FACET_SAMPLE_SIZE,
+        },
+      }),
+    ]);
+
+    return { page, facets: buildBackendFacets(facetSample.items) };
   },
 
   async getProduct(slug: string): Promise<Product> {
@@ -649,6 +677,29 @@ export const catalogService = {
       query: { take: 4 },
     });
     return products.map((product, index) => mapBackendListProduct(product, undefined, index));
+  },
+
+  /**
+   * Avaliacoes de um produto.
+   *
+   * ⚠️  Nao existe modulo de avaliacoes no backend — nao ha entidade, endpoint
+   * nem moderacao. Em modo mock devolvemos os depoimentos de exemplo para a
+   * tela poder ser avaliada; contra a API real devolvemos lista vazia, e a
+   * secao mostra "ainda nao tem avaliacoes".
+   *
+   * Esta funcao existe para que ligar o modulo de verdade seja trocar estas
+   * linhas por uma chamada HTTP — o componente nao muda. Antes disso, o
+   * ProductPage importava o mock direto, o que levaria dados falsos para
+   * producao sem ninguem perceber.
+   */
+  async getProductReviews(productId: string): Promise<Review[]> {
+    if (USE_MOCK) {
+      return delay(
+        mockReviews.filter((review) => review.productId === productId),
+        200,
+      );
+    }
+    return [];
   },
 
   async searchSuggest(term: string): Promise<ProductSummary[]> {

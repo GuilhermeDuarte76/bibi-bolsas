@@ -13,6 +13,7 @@ import {
   type BackendUserContract,
 } from './http';
 import { customer as mockCustomer } from './mock/account';
+import { accountService } from './account.service';
 
 export interface Session {
   customer: Customer;
@@ -93,7 +94,13 @@ export const authService = {
     return authenticate(email, password);
   },
 
-  async register(input: { name: string; email: string; password: string }): Promise<Session> {
+  async register(input: {
+    name: string;
+    email: string;
+    password: string;
+    /** Aceite de marketing marcado no cadastro (opcional, revogavel depois). */
+    marketingConsent?: boolean;
+  }): Promise<Session> {
     if (USE_MOCK) {
       const session: Session = {
         customer: { ...mockCustomer, name: input.name, email: input.email },
@@ -114,7 +121,22 @@ export const authService = {
       },
     });
 
-    return authenticate(input.email, input.password);
+    const session = await authenticate(input.email, input.password);
+
+    /*
+     * O aceite exige sessao, por isso vai depois do login.
+     * Falhar aqui nao pode derrubar o cadastro: a conta ja existe e o aceite
+     * pode ser dado de novo em Minha conta.
+     */
+    if (input.marketingConsent) {
+      try {
+        await accountService.setMarketingConsent(true);
+      } catch {
+        // silencioso de proposito — ver comentario acima
+      }
+    }
+
+    return session;
   },
 
   async adminLogin(email: string, password: string, _otp?: string): Promise<Session> {
@@ -212,8 +234,45 @@ export const authService = {
     }
   },
 
-  async requestPasswordReset(email: string): Promise<void> {
-    if (USE_MOCK) return delay(undefined, 500);
-    return http<void>('/auth/forgot-password', { method: 'POST', auth: false, body: { email } });
+  /**
+   * Pede o link de redefinicao.
+   *
+   * O backend sempre responde sucesso, exista ou nao a conta — e proposital:
+   * responder "e-mail nao encontrado" entregaria a terceiros quais e-mails
+   * tem cadastro na loja. Em desenvolvimento ele devolve `devResetToken`,
+   * que a tela usa para seguir o fluxo sem caixa de entrada configurada.
+   */
+  async requestPasswordReset(email: string): Promise<{ devResetToken?: string }> {
+    if (USE_MOCK) return delay({ devResetToken: 'token-de-desenvolvimento' }, 500);
+    return http<{ devResetToken?: string }>('/auth/forgot-password', {
+      method: 'POST',
+      auth: false,
+      body: { email },
+    });
+  },
+
+  /**
+   * Redefine a senha com o token recebido por e-mail.
+   *
+   * ⚠️  O formato do corpo segue a convencao dos demais endpoints de auth
+   * (que usam `confirmPassword`), mas nao foi possivel conferir o DTO real de
+   * `POST /api/auth/reset-password` — confirme com o backend antes de subir.
+   */
+  async resetPassword(input: {
+    email: string;
+    token: string;
+    password: string;
+  }): Promise<void> {
+    if (USE_MOCK) return delay(undefined, 700);
+    return http<void>('/auth/reset-password', {
+      method: 'POST',
+      auth: false,
+      body: {
+        email: input.email,
+        token: input.token,
+        newPassword: input.password,
+        confirmPassword: input.password,
+      },
+    });
   },
 };

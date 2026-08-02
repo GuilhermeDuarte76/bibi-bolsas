@@ -68,6 +68,11 @@ function mapBackendCartItem(item: BackendCartItemDto): CartItem {
     compareAtCents: effectivePriceCents < basePriceCents ? basePriceCents : undefined,
     quantity: item.quantity,
     maxStock: Math.max(0, item.availableQuantity),
+    // O backend avisa quando o SKU saiu de linha ou o preco mudou; sem
+    // repassar isso, a cliente so descobre o problema ao tentar pagar.
+    isAvailable: item.isAvailable,
+    hasPriceChanged: item.hasPriceChanged,
+    messages: item.messages ?? [],
   };
 }
 
@@ -82,6 +87,10 @@ function mapBackendCart(cart: BackendCartDto): Cart {
     discountCents: 0,
     shippingCents: 0,
     totalCents: subtotalCents,
+    hasUnavailableItems: cart.hasUnavailableItems,
+    hasPriceChanges: cart.hasPriceChanges,
+    messages: cart.messages ?? [],
+    expiresAt: cart.expiresAt,
   };
 }
 

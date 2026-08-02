@@ -1,7 +1,10 @@
 import { Container } from '@/components/ui/Layout';
 import { ButtonLink } from '@/components/ui/Button';
+import { usePageMeta } from '@/hooks/usePageMeta';
 
 export function NotFoundPage() {
+  usePageMeta({ title: 'Página não encontrada', noIndex: true });
+
   return (
     <Container className="py-24">
       <div className="mx-auto flex max-w-md flex-col items-center text-center">

@@ -397,6 +397,23 @@ function mapOrderDetails(dto: BackendOrderDetailsDto): Order {
   };
 }
 
+/**
+ * Preferencias de notificacao.
+ * Nomes conforme `GET /api/me/notificacoes/preferencias`; campos ausentes
+ * assumem o padrao conservador (so avisos essenciais de pedido).
+ */
+export interface NotificationPreferences {
+  orderUpdates: boolean;
+  promotions: boolean;
+  abandonedCart: boolean;
+}
+
+interface BackendNotificationPreferencesDto {
+  orderUpdates?: boolean;
+  promotions?: boolean;
+  abandonedCart?: boolean;
+}
+
 export const accountService = {
   async getCustomer(): Promise<Customer> {
     if (USE_MOCK) return delay(mockCustomer);
@@ -417,6 +434,102 @@ export const accountService = {
         },
       }),
     );
+  },
+
+  /**
+   * Aceite de comunicacoes de marketing (LGPD: consentimento revogavel).
+   * Endpoint dedicado — nao exige o perfil completo, entao serve logo apos o
+   * cadastro, quando a cliente ainda nao preencheu CPF e telefone.
+   */
+  async setMarketingConsent(accepted: boolean): Promise<void> {
+    if (USE_MOCK) return delay(undefined, 200);
+    return http<void>('/me/profile/marketing-consent', {
+      method: 'PATCH',
+      body: { accepted },
+    });
+  },
+
+  /** Troca de senha de quem ja esta logada (exige a senha atual). */
+  async changePassword(input: { currentPassword: string; newPassword: string }): Promise<void> {
+    if (USE_MOCK) return delay(undefined, 600);
+    return http<void>('/me/password', {
+      method: 'PATCH',
+      body: {
+        currentPassword: input.currentPassword,
+        newPassword: input.newPassword,
+        confirmPassword: input.newPassword,
+      },
+    });
+  },
+
+  /**
+   * Pede a troca de e-mail. O endereco novo so passa a valer depois de
+   * confirmado pelo link — senao um erro de digitacao trancaria a conta.
+   * Em desenvolvimento o backend devolve `devConfirmationToken`.
+   */
+  async requestEmailChange(newEmail: string): Promise<{ devConfirmationToken?: string }> {
+    if (USE_MOCK) return delay({ devConfirmationToken: 'token-de-desenvolvimento' }, 600);
+    return http<{ devConfirmationToken?: string }>('/me/email/change-request', {
+      method: 'POST',
+      body: { newEmail },
+    });
+  },
+
+  /** Confirma a troca com o token do e-mail. Publico: o link chega deslogado. */
+  async confirmEmailChange(token: string): Promise<void> {
+    if (USE_MOCK) return delay(undefined, 600);
+    return http<void>('/me/email/confirm', { method: 'POST', auth: false, body: { token } });
+  },
+
+  async cancelEmailChange(): Promise<void> {
+    if (USE_MOCK) return delay(undefined, 400);
+    return http<void>('/me/email/cancel', { method: 'POST' });
+  },
+
+  /**
+   * Solicitacao de exclusao de dados (LGPD art. 18).
+   * Nao apaga na hora: abre um pedido que a loja precisa tratar, porque parte
+   * dos dados tem retencao obrigatoria por lei fiscal.
+   */
+  async requestAccountDeletion(reason?: string): Promise<void> {
+    if (USE_MOCK) return delay(undefined, 700);
+    return http<void>('/me/profile/delete-request', { method: 'POST', body: { reason } });
+  },
+
+  async getNotificationPreferences(): Promise<NotificationPreferences> {
+    if (USE_MOCK) {
+      return delay({ orderUpdates: true, promotions: true, abandonedCart: true });
+    }
+    const dto = await http<BackendNotificationPreferencesDto>('/me/notificacoes/preferencias');
+    return {
+      orderUpdates: dto.orderUpdates ?? true,
+      promotions: dto.promotions ?? false,
+      abandonedCart: dto.abandonedCart ?? false,
+    };
+  },
+
+  async updateNotificationPreferences(
+    preferences: NotificationPreferences,
+  ): Promise<NotificationPreferences> {
+    if (USE_MOCK) return delay(preferences, 400);
+    const dto = await http<BackendNotificationPreferencesDto>('/me/notificacoes/preferencias', {
+      method: 'PUT',
+      body: preferences,
+    });
+    return {
+      orderUpdates: dto.orderUpdates ?? preferences.orderUpdates,
+      promotions: dto.promotions ?? preferences.promotions,
+      abandonedCart: dto.abandonedCart ?? preferences.abandonedCart,
+    };
+  },
+
+  /** Define o endereco padrao do checkout. */
+  async setPrimaryAddress(id: string): Promise<void> {
+    if (USE_MOCK) {
+      addressBook = addressBook.map((address) => ({ ...address, isDefault: address.id === id }));
+      return delay(undefined, 300);
+    }
+    return http<void>(`/me/enderecos/${id}/principal`, { method: 'PATCH' });
   },
 
   async listAddresses(): Promise<Address[]> {

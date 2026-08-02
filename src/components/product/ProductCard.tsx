@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/Badge';
 import { Stars } from '@/components/ui/Stars';
 import { Swatches } from './Swatches';
 import { PriceBlock } from './PriceBlock';
+import { analytics } from '@/lib/analytics';
 import { cn } from '@/lib/utils';
 
 /**
@@ -12,8 +13,20 @@ import { cn } from '@/lib/utils';
  * proporcao de imagem consistente, hover com segunda foto apenas no desktop,
  * sem texto sobre o produto, sem sombras pesadas.
  */
-export function ProductCard({ product }: { product: ProductSummary }) {
+export function ProductCard({
+  product,
+  listName,
+  index,
+}: {
+  product: ProductSummary;
+  /** Nome da vitrine de origem — alimenta `select_item` no relatorio. */
+  listName?: string;
+  index?: number;
+}) {
   const [hover, setHover] = useState(false);
+  const reportSelection = () => {
+    if (listName) analytics.selectItem(listName, product, index);
+  };
   const [selectedVariantId, setSelectedVariantId] = useState<string>();
   const primaryBadge = product.badges[0];
   const previewVariants = useMemo(() => {
@@ -42,6 +55,7 @@ export function ProductCard({ product }: { product: ProductSummary }) {
     >
       <Link
         to={`/produto/${product.slug}`}
+        onClick={reportSelection}
         className="relative block overflow-hidden rounded-[var(--radius-lg)] bg-cream-light"
       >
         <div className="aspect-[4/5] w-full">
@@ -79,7 +93,11 @@ export function ProductCard({ product }: { product: ProductSummary }) {
       <div className="mt-3 flex flex-1 flex-col gap-1.5">
         {product.collection && <span className="eyebrow">{product.collection}</span>}
         <h3 className="font-medium leading-snug text-graphite">
-          <Link to={`/produto/${product.slug}`} className="hover:text-cinnamon">
+          <Link
+            to={`/produto/${product.slug}`}
+            onClick={reportSelection}
+            className="hover:text-cinnamon"
+          >
             {product.name}
           </Link>
         </h3>

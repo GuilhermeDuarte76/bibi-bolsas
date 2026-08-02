@@ -23,8 +23,12 @@ export function useAuth() {
   });
 
   const register = useMutation({
-    mutationFn: (vars: { name: string; email: string; password: string }) =>
-      authService.register(vars),
+    mutationFn: (vars: {
+      name: string;
+      email: string;
+      password: string;
+      marketingConsent?: boolean;
+    }) => authService.register(vars),
     onSuccess: setSession,
   });
 

@@ -65,6 +65,12 @@ npm run typecheck  # checagem de tipos
 npm run lint       # ESLint
 ```
 
+## Tracking e anúncios
+
+GA4, Google Ads, Google Tag Manager e Meta Pixel ficam desligados enquanto os
+respectivos IDs não existirem no ambiente. A implementação, os eventos e o
+passo a passo de ativação estão em [docs/tracking.md](docs/tracking.md).
+
 ### Demo
 
 - **Loja:** navegue por `/`, `/catalogo`, `/produto/:slug`, carrinho e checkout completo.
